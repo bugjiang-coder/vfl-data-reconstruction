@@ -1,0 +1,47 @@
+# dataset
+name: adult
+half: 16
+
+# dir
+data_dir: /home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data
+resume: ''
+save: ./model/adult/base
+
+# model
+report_freq: 10
+#workers: 8
+
+
+# Hyperparameters
+lr: 0.001
+momentum: 0.9
+weight_decay: 3e-5
+gamma: 0.97
+epochs: 20
+batch_size: 64
+
+
+#parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
+#                        help='location of the data corpus')
+#    parser.add_argument('--name', type=str, default='adult-2layer-enhance2', help='experiment name')
+#    parser.add_argument('--batch_size', type=int, default=64, help='batch size')
+#    parser.add_argument('--lr', type=float, default=0.001, help='init learning rate')
+#    parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
+#    parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
+#    parser.add_argument('--report_freq', type=float, default=10, help='report frequency')
+#    parser.add_argument('--workers', type=int, default=2, help='num of workers')
+#    parser.add_argument('--epochs', type=int, default=20, help='num of training epochs')
+#    parser.add_argument('--layers', type=int, default=18, help='total number of layers')
+#    parser.add_argument('--seed', type=int, default=1, help='random seed')
+#    parser.add_argument('--grad_clip', type=float, default=5., help='gradient clipping')
+#    parser.add_argument('--gamma', type=float, default=0.97, help='learning rate decay')
+#    parser.add_argument('--decay_period', type=int, default=1, help='epochs between two learning rate decays')
+#    parser.add_argument('--parallel', action='store_true', default=False, help='data parallelism')
+#    parser.add_argument('--u_dim', type=int, default=64, help='u layer dimensions')
+#    parser.add_argument('--k', type=int, default=2, help='num of client')
+#    parser.add_argument('--resume', default='', type=str, metavar='PATH',
+#                        help='path to latest checkpoint (default: none)')
+#    parser.add_argument('--encoder', default='./model/VIME/checkpoint_0095.pth.tar', type=str, metavar='PATH',
+#                        help='path to trained encoder checkpoint (default: none)')
+#    parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+#                        help='manual epoch number (useful on restarts)')
