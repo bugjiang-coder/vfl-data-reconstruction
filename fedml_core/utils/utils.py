@@ -13,9 +13,12 @@ class ModelTrainer(ABC):
        2. This class can be used in both server and client side
        3. This class is an operator which does not cache any states inside.
     """
-    def __init__(self, model=[], args=None):
+    def __init__(self, active_model, passive_model=[], active_optimizer=[], passive_optimizer_list=[], args=None):
         # 注意：这里传入的model的list 是一个列表
-        self.model = model
+        self.active_model = active_model
+        self.passive_model_list = passive_model
+        self.active_optimizer = active_optimizer
+        self.passive_optimizer_list = passive_optimizer_list
         self.id = 0
         self.args = args
 
@@ -55,20 +58,32 @@ def over_write_args_from_file(args, yml):
             setattr(args, k, dic[k])
 
 class DFDataset(Dataset):
-    def __init__(self, x, y=False):
-        self.x = x
-        self.y = y
-
+    def __init__(self, data):
+        # data = data
+        self.X_a, self.X_b, self.y = data
     def __getitem__(self, item):
-        x = self.x.iloc[[item]].values.reshape(-1)
-        if type(self.y)!=type(False): # 有x有y
-            y = self.y.iloc[[item]].values.reshape(-1)
-            return np.float32(x), np.float32(y)
-        return np.float32(x) # 只有x
+        X_a = self.X_a.iloc[[item]].values.reshape(-1)
+        X_b = self.X_b.iloc[[item]].values.reshape(-1)
+        y = self.y.iloc[[item]].values.reshape(-1)
+
+        return [np.float32(X_a), np.float32(X_b)], np.float32(y)
 
     def __len__(self):
-        return len(self.x)
+        return len(self.X_a)
 
+class adult_dataset(Dataset):
+    def __init__(self, data):
+        # data = data
+        self.Xa, self.Xb, self.y = data
+    def __getitem__(self, item):
+        Xa = self.Xa[item]
+        Xb = self.Xb[item]
+        y = self.y[item]
+
+        return [np.float32(Xa), np.float32(Xb)], np.float32(y)
+
+    def __len__(self):
+        return len(self.Xa)
 
 class zhongyuan_dataset(Dataset):
     def __init__(self, data):

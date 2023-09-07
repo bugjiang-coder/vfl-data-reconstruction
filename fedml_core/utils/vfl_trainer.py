@@ -1,3 +1,5 @@
+import os
+
 import torch
 from torch import nn
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_fscore_support
@@ -43,29 +45,63 @@ def compute_correct_prediction(*, y_targets, y_prob_preds, threshold=0.5):
 
 class VFLTrainer(ModelTrainer):
     def get_model_params(self):
-        return self.model.cpu().state_dict()
+        return [self.active_model.cpu().state_dict()] + [model.cpu().state_dict() for model in self.passive_model_list]
 
     def set_model_params(self, model_parameters):
-        self.model.load_state_dict(model_parameters)
+        self.active_model.load_state_dict(model_parameters[0])
+        for i in range(len(self.passive_model_list)):
+            self.passive_model_list[i].load_state_dict(model_parameters[i+1])
 
-    def save_model(self, dir, name=''):
-        for i, m in enumerate(self.model):
-            if name:
-                torch.save(m, dir + name+'_'+str(i)+'.pth')
-            else:
-                torch.save(m, dir + str(i) + '_.pth')
+    def save_model(self, dir, name='', epoch=None, auc=None):
+        if not os.path.exists(dir):
+            os.makedirs(dir)
 
-    def load_model(self, models):
-        for m in models:
-            net = torch.load(m)
-            self.model.append(net)
+        model_list = self.passive_model_list
+        optimizer_list = self.passive_optimizer_list
+
+        state = {
+            'epoch': epoch,
+            'auc': auc,
+            'state_dict': [self.active_model.state_dict()]+[model_list[i].state_dict() for i in range(len(model_list))],
+            'optimizer': [self.active_optimizer.state_dict()]+[optimizer_list[i].state_dict() for i in range(len(optimizer_list))],
+        }
+
+        if name:
+            filename = os.path.join(dir, name)
+        else:
+            filename = os.path.join(dir, 'checkpoint.pth.tar')
+        torch.save(state, filename)
+
+    def load_model(self, path, device):
+        checkpoint = torch.load(path, map_location=device)
+        self.active_model.load_state_dict(checkpoint['state_dict'][0])
+        self.active_optimizer.load_state_dict(checkpoint['optimizer'][0])
+        for i in range(len(self.passive_model_list)):
+            self.passive_model_list[i].load_state_dict(checkpoint['state_dict'][i+1])
+            self.passive_optimizer_list[i].load_state_dict(checkpoint['optimizer'][i+1])
+
+        # only model to device
+        # self.active_model.to(device)
+        # for i in range(len(model_list)):
+        #     model_list[i].to(device)
+
+        return checkpoint['epoch'], checkpoint['auc']
 
 
-    def train(self, train_data, criterion, optimizer_list, device, args):
 
-        model_list = self.model
+
+    def train(self, train_data, criterion, device, args):
+
+        model_list = [self.active_model] + self.passive_model_list
         model_list = [model.to(device) for model in model_list]
         model_list = [model.train() for model in model_list]
+
+        optimizer_list = [self.active_optimizer] + self.passive_optimizer_list
+
+        # # 打印model的device
+        # for model in model_list:
+        #     # print(model.device)
+        #     print(model.state_dict())
 
         # train and update
         epoch_loss = []
@@ -136,7 +172,7 @@ class VFLTrainer(ModelTrainer):
 
 
     def test(self, test_data, criterion, device):
-        model_list = self.model
+        model_list = [self.active_model] + self.passive_model_list
 
         model_list = [model.to(device) for model in model_list]
 

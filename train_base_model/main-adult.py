@@ -7,12 +7,14 @@ import numpy as np
 from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
-from fedml_core.preprocess.adult.preprocess_adult import preprocess
-from fedml_core.model.net import active_model, passive_model_easy
-from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import criteo_dataset, over_write_args_from_file
+# 加入模块的搜索路径
 
-#from fedml_api.utils.utils import save_checkpoint
+from fedml_core.preprocess.adult.preprocess_adult import preprocess
+from fedml_core.model.net import active_model, passive_model
+from fedml_core.utils.vfl_trainer import VFLTrainer
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file
+
+# from fedml_api.utils.utils import save_checkpoint
 import torch
 import torch.nn as nn
 import argparse
@@ -20,56 +22,47 @@ import wandb
 import shutil
 
 
-def save_checkpoint(state, is_best, save, checkpoint):
-    filename = os.path.join(save, checkpoint)
-    torch.save(state, filename)
-    if is_best:
-        best_filename = os.path.join(save, 'model_best.pth.tar')
-        shutil.copyfile(filename, best_filename)
-
-def run_experiment(train_data, test_data, device, args):
+def run_experiment(device, args):
     print("hyper-parameters:")
     print("batch size: {0}".format(args.batch_size))
     print("learning rate: {0}".format(args.lr))
 
-    # input cuda
-    '''
-    train_data = [torch.from_numpy(x).to(device) for x in train_data]
-    test_data = [torch.from_numpy(x).to(device) for x in test_data]
-    '''
+    print("################################ Load Data ############################")
+    train_data, test_data = preprocess(args.data_dir)
+
     Xa_train, Xb_train, y_train = train_data
-    Xa_test, Xb_test, y_test = test_data
-
-
-    print("################################ Wire Federated Models ############################")
-
-    active_party = active_model(input_dim=Xa_train.shape[1], intern_dim=Xb_train.shape[1]+2, num_classes=1, k=args.k)
-
-
-    #model_list = [active_party]+ [passive_model(input_dim=Xb_train.shape[1], intern_dim=20, output_dim=10) for _ in range(args.k-1)]
-    # model_list = [active_party] + [passive_model(input_dim=Xb_train.shape[1], intern_dim=20, output_dim=10) for _ in
-    #                                range(args.k - 1)]
-    model_list = [active_party] + [passive_model_easy(input_dim=Xb_train.shape[1], intern_dim=Xb_train.shape[1]+1, output_dim=Xb_train.shape[1]+2) for _ in
-                                   range(args.k - 1)]
-
+    # Xa_test, Xb_test, y_test = test_data
 
     # dataloader
-    train_dataset = criteo_dataset(train_data)
-    test_dataset = criteo_dataset(test_data)
+    train_dataset = adult_dataset(train_data)
+    test_dataset = adult_dataset(test_data)
 
+    train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
+                                              num_workers=args.workers, drop_last=False)
+    test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
+                                             num_workers=args.workers, drop_last=False)
 
-    train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers, drop_last=False)
-    test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.workers, drop_last=False)
+    print("################################ Set Federated Models, optimizer, loss ############################")
 
-    optimizer_list = [
+    active_party = active_model(input_dim=Xa_train.shape[1], intern_dim=20, num_classes=1, k=args.k)
+
+    passive_model_list = [passive_model(input_dim=Xb_train.shape[1], intern_dim=20, output_dim=20) for _ in
+                          range(args.k - 1)]
+    active_party.to(device)
+    for model in passive_model_list:
+        model.to(device)
+
+    active_optimizer = torch.optim.SGD(active_party.parameters(), args.lr, momentum=args.momentum,
+                                       weight_decay=args.weight_decay)
+
+    passive_optimizer_list = [
         torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
-        in model_list
+        in passive_model_list
     ]
 
-    #model_list = [model.train() for model in model_list]
+    vfltrainer = VFLTrainer(active_party, passive_model_list, active_optimizer, passive_optimizer_list, args)
 
-    vfltrainer = VFLTrainer(model_list)
-
+    # loss function
     criterion = nn.BCEWithLogitsLoss(reduction='sum').to(device)
 
     # optionally resume from a checkpoint
@@ -78,16 +71,12 @@ def run_experiment(train_data, test_data, device, args):
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume, map_location=device)
             args.start_epoch = checkpoint['epoch']
-            for i in range(len(model_list)):
-                model_list[i].load_state_dict(checkpoint['state_dict'][i])
-                #optimizer_list[i].load_state_dict(checkpoint['optimizer'][i])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+            vfltrainer.load_model(args.resume, device)
+            print("=> loaded checkpoint '{}' (epoch: {} auc: {})"
+                  .format(args.resume, checkpoint['epoch'], checkpoint['auc']))
 
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-
-
 
     print("################################ Train Federated Models ############################")
 
@@ -97,12 +86,11 @@ def run_experiment(train_data, test_data, device, args):
 
         logging.info('epoch %d args.lr %e ', epoch, args.lr)
 
-        train_loss = vfltrainer.train(train_queue, criterion, optimizer_list, device, args)
+        train_loss = vfltrainer.train(train_queue, criterion, device, args)
 
-        #[optimizer_list[i].zero_grad() for i in range(k)]
+        # [optimizer_list[i].zero_grad() for i in range(k)]
 
         acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
-
 
         wandb.log({"train_loss": train_loss[0],
                    "test_loss": test_loss,
@@ -111,32 +99,37 @@ def run_experiment(train_data, test_data, device, args):
                    "test_recall": recall,
                    "test_f1": f1,
                    "test_auc": auc
-        })
+                   })
 
-        print("--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
-              .format(epoch, train_loss[0], test_loss, acc, precision, recall, f1, auc))
+        print(
+            "--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
+            .format(epoch, train_loss[0], test_loss, acc, precision, recall, f1, auc))
 
         ## save partyA and partyB model parameters
-        # if epoch % args.report_freq == 0:
-        #     is_best = auc > best_auc
-        #     best_auc = max(auc, best_auc)
-        #
-        #     save_checkpoint({
-        #         'epoch': epoch + 1,
-        #         'best_auc': best_auc,
-        #         'state_dict': [model_list[i].state_dict() for i in range(len(model_list))],
-        #         'optimizer': [optimizer_list[i].state_dict() for i in range(len(optimizer_list))],
-        #     }, is_best, './model/zhongyuan/Tab-baseline',  'checkpoint_{:04d}.pth.tar'.format(epoch))
+        if epoch % 2 == 0:
+            is_best = auc > best_auc
+            best_auc = max(auc, best_auc)
 
-    vfltrainer.save_model('/home/yangjirui/paper-code/model/adult/','2layers-enhance2')
+            vfltrainer.save_model(args.save, 'checkpoint_{:04d}.pth.tar'.format(epoch), epoch, auc)
+            if is_best:
+                shutil.copyfile(args.save + 'checkpoint_{:04d}.pth.tar'.format(epoch),
+                                args.save + '/best.pth.tar')
 
+    # vfltrainer.save_model('/data/yangjirui/vfl-tab-reconstruction/model/adult/', 'final.pth.tar')
+
+
+def freeze_rand(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
 
 
 if __name__ == '__main__':
     print("################################ Prepare Data ############################")
 
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("vflmodelnet")
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
@@ -146,7 +139,6 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
-    parser.add_argument('--report_freq', type=float, default=10, help='report frequency')
     parser.add_argument('--workers', type=int, default=2, help='num of workers')
     parser.add_argument('--epochs', type=int, default=20, help='num of training epochs')
     parser.add_argument('--layers', type=int, default=18, help='total number of layers')
@@ -168,11 +160,10 @@ if __name__ == '__main__':
                         help='path to save checkpoint (default: none)')
 
     # config file
-    parser.add_argument('--c', type=str, default='configs/train/adult_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/train/adult_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
-
 
     logging.basicConfig()
     logger = logging.getLogger()
@@ -181,26 +172,14 @@ if __name__ == '__main__':
     logger.info(args)
     logger.info(device)
 
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    freeze_rand(args.seed)
 
-    # 这个是一个类似tensorboard的东西,可视化实验过程
-    wandb.init(project="F-VFL-basemodel", entity="yang-test",
+    # # 这个是一个类似tensorboard的东西,可视化实验过程
+    wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
                name="VFL-{}".format(args.name),
                config=args)
 
-    # data_dir = "../../../data/zhongyuan/"
-    train, test = preprocess(args.data_dir)
-    Xa_train, Xb_train, y_train = train
-    Xa_test, Xb_test, y_test = test
-
-    Xa_train, Xb_train, y_train = shuffle(Xa_train, Xb_train, y_train)
-    Xa_test, Xb_test, y_test = shuffle(Xa_test, Xb_test, y_test)
-    train = [Xa_train, Xb_train, y_train]
-    test = [Xa_test, Xb_test, y_test]
-    run_experiment(train_data=train, test_data=test, device=device, args=args)
+    run_experiment(device=device, args=args)
 
     # reference training result:
     # --- epoch: 99, batch: 1547, loss: 0.11550658332804839, acc: 0.9359105089400196, auc: 0.8736984159409958
@@ -208,4 +187,3 @@ if __name__ == '__main__':
 
     # --- epoch: 99, batch: 200, loss: 0.09191526211798191, acc: 0.9636565918783608, auc: 0.9552342451916291
     # --- (0.9754657898538487, 0.7605652456769234, 0.8317858679682943, None)
-
