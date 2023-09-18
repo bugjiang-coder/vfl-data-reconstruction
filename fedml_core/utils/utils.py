@@ -4,6 +4,7 @@ import torch
 import ruamel.yaml as yaml
 from abc import ABC, abstractmethod
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 
 
 class ModelTrainer(ABC):
@@ -85,6 +86,22 @@ class adult_dataset(Dataset):
     def __len__(self):
         return len(self.Xa)
 
+
+
+class bank_dataset(Dataset):
+    def __init__(self, data):
+        # data = data
+        self.Xa, self.Xb, self.y = data
+    def __getitem__(self, item):
+        Xa = self.Xa[item]
+        Xb = self.Xb[item]
+        y = self.y[item]
+
+        return [np.float32(Xa), np.float32(Xb)], np.float32(y)
+
+    def __len__(self):
+        return len(self.Xa)
+
 class zhongyuan_dataset(Dataset):
     def __init__(self, data):
         # data = data
@@ -140,6 +157,40 @@ def tensor2df(tensorDate):
     return dfData
 
 
+def tabRebuildAcc(originData, rebuildData, tab, sigma=0.2):
+    originData = originData.detach().clone()
+    rebuildData = rebuildData.detach().clone()
+
+    # 1. 计算onehot列的准确率
+    onehot_index = tab['onehot']
+
+    onehotsuccessnum = 0
+    numsuccessnum = 0
+
+    for item in onehot_index:
+        origin = torch.argmax(originData[:, onehot_index[item]], dim=1)
+        rebuild = torch.argmax(rebuildData[:, onehot_index[item]], dim=1)
+
+        onehotsuccessnum += torch.eq(origin, rebuild).sum().item()
+
+    onehot_acc = onehotsuccessnum/(len(onehot_index) * rebuildData.shape[0])
+
+    # 2. 计算num列的准确率
+    for i in tab['numList']:
+        origin = originData[:, i]
+        rebuild = rebuildData[:, i]
+        diff = torch.abs(origin - rebuild)
+        # print("diff:", diff)
+        # if diff < sigma:
+        numsuccessnum += (diff < sigma).sum().item()
+
+        # print("numsuccessnum:", numsuccessnum)
+    num_acc = numsuccessnum/(len(tab['numList']) * rebuildData.shape[0])
+
+    return (numsuccessnum+onehotsuccessnum)/((len(tab['numList']) + len(onehot_index)) * rebuildData.shape[0]), onehot_acc, num_acc
+
+
+
 
 # =================================为表格设计的损失函数=================================
 def bool_loss(input, boolList=None):
@@ -149,6 +200,40 @@ def bool_loss(input, boolList=None):
     else:
         boolColumn = input
     return torch.sum(torch.abs( torch.abs( boolColumn - 0.5 ) - 0.5))
+
+def onehot_bool_loss(input, onehot_index=None, boolList=None):
+    input = onehot_softmax(input, onehot_index)
+    # 针对bool列设计的损失函数
+    if boolList:
+        boolColumn = input[:, boolList]
+    else:
+        boolColumn = input
+    return torch.sum(torch.abs( torch.abs( boolColumn - 0.5 ) - 0.5))
+
+def onehot_bool_loss_v2(input, onehot_index=None, boolList=None):
+    input = onehot_softmax(input, onehot_index)
+    # 针对bool列设计的损失函数
+    if boolList:
+        boolColumn = input[:, boolList]
+    else:
+        boolColumn = input
+
+    lower=0
+    upper=1
+
+    lower_value = torch.sum(torch.abs(boolColumn[boolColumn < lower] - lower))
+    upper_value = torch.sum(torch.abs(boolColumn[boolColumn > upper] - upper))
+
+    return lower_value + upper_value
+
+def onehot_softmax(data, onehot_index):
+    # onehot 编码的预处理步骤
+
+    result = data.clone().requires_grad_(True)
+    for item in onehot_index:
+        result[:, onehot_index[item]] = F.softmax(data[:, onehot_index[item]], dim=1)
+    return result
+
 def int_loss(input, intList=None):
     # 针对整数列设计的损失函数
     if intList:
@@ -157,6 +242,18 @@ def int_loss(input, intList=None):
         intColumn = input
     # TODO： 发现一个严重的问题，torch.frac求导的输入和输出是一致的，相当常数
     return torch.sum(torch.abs(torch.frac(intColumn)))
+
+def num_loss(input, numList=None, lower=0, upper=1):
+    # 针对整数列设计的损失函数
+    if numList:
+        numColumn = input[:, numList]
+    else:
+        numColumn = input
+
+    lower_value = torch.sum(torch.abs(numColumn[numColumn < lower] - lower))
+    upper_value = torch.sum(torch.abs(numColumn[numColumn > upper] - upper))
+
+    return lower_value+upper_value
 
 def neg_loss(input, posList=None):
     # 针对非负列设计的损失函数

@@ -6,6 +6,9 @@ from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_fsco
 from fedml_core.utils.utils import ModelTrainer
 import numpy as np
 
+
+
+
 class AverageMeter(object):
     def __init__(self):
         self.reset()
@@ -157,6 +160,85 @@ class VFLTrainer(ModelTrainer):
             #  将梯度张量的范数（Norm）限制在一个指定的阈值范围内,防止过拟合
             nn.utils.clip_grad_norm_(model_list[0].parameters(), args.grad_clip)
             optimizer_list[0].step()
+
+
+            # to avoid nan loss
+            # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+
+            # logging.info('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            #     epoch, (batch_idx + 1) * self.args.batch_size, len(self.local_training_data) * self.args.batch_size,
+            #            100. * (batch_idx + 1) / len(self.local_training_data), loss.item()))
+            batch_loss.append(loss.item())
+        epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+        return epoch_loss
+
+    def train_passive_mode(self, train_data, criterion, device, args):
+        # 注意着个函数只能处理1个参与方
+
+        model_list = [self.active_model] + self.passive_model_list
+        model_list = [model.to(device) for model in model_list]
+        model_list = [model.train() for model in model_list]
+
+        optimizer = torch.optim.SGD(self.passive_model_list[0].parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+
+
+        # # 打印model的device
+        # for model in model_list:
+        #     # print(model.device)
+        #     print(model.state_dict())
+
+        # train and update
+        epoch_loss = []
+        batch_loss = []
+        for step, (trn_X, trn_y) in enumerate(train_data):
+            trn_X = [x.float().to(device) for x in trn_X]
+            target = trn_y.float().to(device)
+            # batch_loss = []
+
+            optimizer.zero_grad()
+
+            # 把被动方法的数据放进去
+            U_B_list = [model_list[i](trn_X[i]) for i in range(1, len(model_list))]
+            # 把输出复制一份拷贝出来
+            U_B_clone_list = [U_B.detach().clone() for U_B in U_B_list]
+            U_B_clone_list = [U_B.requires_grad_(True) for U_B in U_B_clone_list]
+
+            #m = nn.Sigmoid()
+            # Q:很奇怪训练的时候不用sigmoid 测推理的使用用sigmoid 为什么要这样设计?
+
+            logits = model_list[0](trn_X[0], U_B_clone_list)
+
+            loss = criterion(logits, target)
+
+            # 1. 在主动方的模型上，计算非主动方的梯度
+            U_B_gradients_list = [torch.autograd.grad(loss, U_B, retain_graph=True) for U_B in U_B_clone_list]
+
+            # add max_norm noise
+            #U_B_gradients_list = gradient_masking(U_B_gradients_list)
+            # add iso gaussian noise
+            #U_B_gradients_list = gradient_gaussian_noise_masking(U_B_gradients_list, ratio=1.0)
+            # add marvell noise
+            #U_B_gradients_list = marvell_g(U_B_gradients_list, target)
+
+            # grad_outputs: 一个与输出形状相同的张量，表示输出相对于某个标量张量的梯度
+            # 让几个模型连接起来
+            model_B_weights_gradients_list = [
+                torch.autograd.grad(U_B_list[i], model_list[i + 1].parameters(), grad_outputs=U_B_gradients_list[i],
+                                    retain_graph=True) for i in range(len(U_B_gradients_list))]
+
+            for i in range(len(model_B_weights_gradients_list)):
+                for w, g in zip(model_list[i + 1].parameters(), model_B_weights_gradients_list[i]):
+                    w.grad = g.detach()
+                #  将梯度张量的范数（Norm）限制在一个指定的阈值范围内,防止过拟合
+                nn.utils.clip_grad_norm_(model_list[i + 1].parameters(), args.grad_clip)
+
+
+            # 2. 计算主动方的梯度
+            loss.backward()
+            #  将梯度张量的范数（Norm）限制在一个指定的阈值范围内,防止过拟合
+            nn.utils.clip_grad_norm_(model_list[0].parameters(), args.grad_clip)
+            optimizer.step()
 
 
             # to avoid nan loss

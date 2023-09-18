@@ -10,11 +10,11 @@ class active_model(nn.Module):
         super(active_model, self).__init__()
 
         self.local_model = nn.Sequential(
-            nn.Linear(input_dim, intern_dim),
+            nn.Linear(input_dim, input_dim*4),
             nn.LeakyReLU(),
-            nn.Linear(intern_dim, intern_dim),
+            nn.Linear(input_dim*4, intern_dim*2),
             nn.LeakyReLU(),
-            nn.Linear(intern_dim, intern_dim),
+            nn.Linear(intern_dim*2, intern_dim),
             nn.LeakyReLU()
         )
         self.classifier = nn.Linear(in_features=intern_dim*k, out_features=num_classes)
@@ -28,31 +28,36 @@ class active_model(nn.Module):
         logits = self.classifier(out)
         return logits
 
+    def getLayerOutput(self, x, targetLayer):
+        # 注意这个是主动方的本地模型
+        return self.local_model[0:targetLayer](x)
+
+    def getLayerNum(self):
+        return len(self.local_model)
+
+
+
+
+
 class passive_model(nn.Module):
     def __init__(self, input_dim, intern_dim, output_dim):
         super(passive_model, self).__init__()
         self.layerDict = collections.OrderedDict()
 
-        self.linear1 = nn.Linear(input_dim, intern_dim)
+        self.linear1 = nn.Linear(input_dim, input_dim * 2)
         self.layerDict['linear1'] = self.linear1
 
         self.ReLU1 = nn.LeakyReLU()
         self.layerDict['ReLU1'] = self.ReLU1
 
-        self.linear2 = nn.Linear(intern_dim, intern_dim)
-        self.layerDict['linear2'] = self.linear2
+        # self.linear2 = nn.Linear(input_dim * 4, output_dim*2)
+        # self.layerDict['linear2'] = self.linear2
+        #
+        # self.ReLU2 = nn.LeakyReLU()
+        # self.layerDict['ReLU2'] = self.ReLU2
 
-        self.ReLU2 = nn.LeakyReLU()
-        self.layerDict['ReLU2'] = self.ReLU2
-
-        self.linear3 = nn.Linear(intern_dim, intern_dim)
-        self.layerDict['linear3'] = self.linear3
-
-        self.ReLU3 = nn.LeakyReLU()
-        self.layerDict['ReLU3'] = self.ReLU3
-
-        self.linear4 = nn.Linear(intern_dim, output_dim, bias=False)
-        self.layerDict['linear4'] = self.linear4
+        self.linear4 = nn.Linear(input_dim*2, output_dim, bias=False)
+        self.layerDict['linear3'] = self.linear4
 
     def forward(self, input):
         for layer in self.layerDict:
@@ -92,6 +97,20 @@ class passive_model(nn.Module):
                 return self.layerDict[layer](x)
         return x
 
+
+class passive_decoder_model(nn.Module):
+    def __init__(self, input_dim, intern_dim, output_dim):
+        super(passive_decoder_model, self).__init__()
+        self.local_model = nn.Sequential(
+            nn.Linear(input_dim, input_dim * 2),
+            nn.LeakyReLU(),
+            nn.Linear(input_dim * 2, output_dim),
+        )
+
+    def forward(self, input):
+        out = self.local_model(input)
+        return out
+
 class passive_model_layer3(nn.Module):
     def __init__(self, input_dim, intern_dim, output_dim):
         super(passive_model_layer3, self).__init__()
@@ -108,7 +127,6 @@ class passive_model_layer3(nn.Module):
 
         self.ReLU2 = nn.LeakyReLU()
         self.layerDict['ReLU2'] = self.ReLU2
-
 
         self.linear4 = nn.Linear(intern_dim, output_dim, bias=False)
         self.layerDict['linear3'] = self.linear4

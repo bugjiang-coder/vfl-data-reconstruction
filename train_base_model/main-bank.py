@@ -9,10 +9,10 @@ from sklearn.utils import shuffle
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 # 加入模块的搜索路径
 
-from fedml_core.preprocess.adult.preprocess_adult import preprocess
+from fedml_core.preprocess.bank.preprocess_bank import preprocess
 from fedml_core.model.net import active_model, passive_model
 from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file
+from fedml_core.utils.utils import bank_dataset, over_write_args_from_file
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -34,8 +34,8 @@ def run_experiment(device, args):
     # Xa_test, Xb_test, y_test = test_data
 
     # dataloader
-    train_dataset = adult_dataset(train_data)
-    test_dataset = adult_dataset(test_data)
+    train_dataset = bank_dataset(train_data)
+    test_dataset = bank_dataset(test_data)
 
     train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                                               num_workers=args.workers, drop_last=False)
@@ -92,14 +92,14 @@ def run_experiment(device, args):
 
         acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
 
-        # wandb.log({"train_loss": train_loss[0],
-        #            "test_loss": test_loss,
-        #            "test_acc": acc,
-        #            "test_precision": precision,
-        #            "test_recall": recall,
-        #            "test_f1": f1,
-        #            "test_auc": auc
-        #            })
+        wandb.log({"train_loss": train_loss[0],
+                   "test_loss": test_loss,
+                   "test_acc": acc,
+                   "test_precision": precision,
+                   "test_recall": recall,
+                   "test_f1": f1,
+                   "test_auc": auc
+                   })
 
         print(
             "--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
@@ -132,14 +132,14 @@ if __name__ == '__main__':
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("vflmodelnet")
-    parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
+    parser.add_argument('--data_dir', default='/home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv',
                         help='location of the data corpus')
-    parser.add_argument('--name', type=str, default='adult-2layer', help='experiment name')
+    parser.add_argument('--name', type=str, default='bank-2layer-enhance2', help='experiment name')
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='init learning rate')
     parser.add_argument('--momentum', type=float, default=0.9, help='momentum')
     parser.add_argument('--weight_decay', type=float, default=3e-5, help='weight decay')
-    parser.add_argument('--workers', type=int, default=2, help='num of workers')
+    parser.add_argument('--workers', type=int, default=8, help='num of workers')
     parser.add_argument('--epochs', type=int, default=20, help='num of training epochs')
     parser.add_argument('--layers', type=int, default=18, help='total number of layers')
     parser.add_argument('--seed', type=int, default=1, help='random seed')
@@ -155,12 +155,12 @@ if __name__ == '__main__':
                         help='path to trained encoder checkpoint (default: none)')
     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                         help='manual epoch number (useful on restarts)')
-    parser.add_argument('--save', default='./model/adult/base', type=str,
+    parser.add_argument('--save', default='./model/bank/base', type=str,
                         metavar='PATH',
                         help='path to save checkpoint (default: none)')
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/train/adult_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/train/bank_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -175,9 +175,9 @@ if __name__ == '__main__':
     freeze_rand(args.seed)
 
     # # 这个是一个类似tensorboard的东西,可视化实验过程
-    # wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
-    #            name="VFL-{}".format(args.name),
-    #            config=args)
+    wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
+               name="VFL-{}".format(args.name),
+               config=args)
 
     run_experiment(device=device, args=args)
 

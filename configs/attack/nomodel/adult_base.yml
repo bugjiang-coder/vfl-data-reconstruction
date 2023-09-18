@@ -1,0 +1,42 @@
+# project-info
+name: adult-base
+
+
+# dir
+data_dir: /data/yangjirui/vfl-tab-reconstruction/dataset/adult/adult.data
+#resume: ''
+#resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
+#save: ''
+save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v2-2layer/
+base_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/best.pth.tar
+decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/shadow_model_decoder.pth.tar
+#origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
+#rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
+shadow_model: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/shadow_model.pth.tar
+
+# model
+report_freq: 10
+workers: 0
+
+
+# Hyperparameters
+lr: 0.1
+momentum: 0.9
+weight_decay: 3e-5
+gamma: 0.97
+epochs: 120
+batch_size: 64
+
+# 重建超参数
+NIters: 1000
+Ndata: 10
+bloss: 0
+bloss2: 1
+bloss2_v2: 0
+numloss: 0.1
+
+iloss: 0
+nloss: 0
+norloss: 0
+
+

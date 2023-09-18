@@ -1,12 +1,12 @@
 # project-info
-name: adult-base
+name: bank-base
 
 
 # dir
-data_dir: ../dataset/adult/adult.data
+data_dir: /home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv
 #resume: ''
 #resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
-save: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/
+save: /data/yangjirui/vfl-tab-reconstruction/model/bank/v1/
 
 # model
 report_freq: 10

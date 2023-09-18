@@ -127,3 +127,14 @@ https://img-blog.csdnimg.cn/42f97e0ccae247e3a90e3b4d22f6b733.png?x-oss-process=i
 https://blog.csdn.net/weixin_53598445/article/details/122113615
 目标4-17日完成
 
+
+
+# 论文的第二阶段
+
+开始准备正式的论文
+
+## 1. 白盒方法
+
+### 1.1 优化方法
+
+现在只在smash data 做相似，能否可以让其在VFL的其他已知部分也做相似
