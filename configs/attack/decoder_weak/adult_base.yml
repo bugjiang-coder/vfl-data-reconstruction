@@ -9,7 +9,7 @@ data_dir: /data/yangjirui/vfl-tab-reconstruction/dataset/adult/adult.data
 #save: ''
 save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v2-2layer/
 base_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/best.pth.tar
-decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/decoder_weak_mode-3.pth.tar
+decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/decoder_weak_mode10+1+10+1+80-add-true64.pth.tar
 #origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
 #rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
 
@@ -30,9 +30,9 @@ batch_size: 64
 NIters: 1000
 Ndata: 10
 bloss: 0
-bloss2: 1
+bloss2: 10
 bloss2_v2: 0
-numloss: 0.1
+numloss: 1
 
 iloss: 0
 nloss: 0

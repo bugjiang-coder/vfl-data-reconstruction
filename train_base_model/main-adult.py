@@ -74,6 +74,11 @@ def run_experiment(device, args):
             vfltrainer.load_model(args.resume, device)
             print("=> loaded checkpoint '{}' (epoch: {} auc: {})"
                   .format(args.resume, checkpoint['epoch'], checkpoint['auc']))
+            acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
+            print(
+                "--- epoch: {0}, test_loss: {1}, test_acc: {2}, test_precison: {3}, test_recall: {4}, test_f1: {5}, test_auc: {6}"
+                .format(checkpoint['epoch'], test_loss, acc, precision, recall, f1, auc))
+            sys.exit(0)
 
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))

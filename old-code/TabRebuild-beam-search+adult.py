@@ -6,7 +6,7 @@ import sys
 import numpy as np
 from sklearn.utils import shuffle
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 from fedml_core.utils.vfl_trainer import VFLTrainer
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.utils.utils import zhongyuan_dataset, tensor2df, Similarity, bool_loss, int_loss, neg_loss, normalize_loss

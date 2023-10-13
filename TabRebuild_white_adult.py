@@ -103,15 +103,16 @@ def rebuild(train_data, tab, device, args):
             modelLoss = ((ture_logits - logits) ** 2).mean()
 
             # 计算loss
-            bloss = bool_loss(xGen, tab['boolList'])
+            # bloss = bool_loss(xGen, tab['boolList'])
             numloss = num_loss(xGen, tab['numList'])
             bloss2 = onehot_bool_loss(xGen_before, tab['onehot'], tab['boolList'])
             bloss2_v2 = onehot_bool_loss_v2(xGen_before, tab['onehot'], tab['boolList'])
             # iloss = int_loss(xGen)
-            nloss = neg_loss(xGen)
-            norloss = normalize_loss(xGen)
+            # nloss = neg_loss(xGen)
+            # norloss = normalize_loss(xGen)
 
-            totalLoss = featureLoss + args.numloss * numloss + args.bloss2_v2*bloss2_v2+ args.bloss2*bloss2 + args.iloss * modelLoss + args.bloss * bloss + args.nloss * nloss + args.norloss * norloss
+            totalLoss = (featureLoss + args.numloss * numloss + args.bloss2_v2*bloss2_v2+ args.bloss2*bloss2 + args.iloss * modelLoss)
+                         # + args.bloss * bloss + args.nloss * nloss + args.norloss * norloss)
             totalLoss.backward(retain_graph=True)
             optimizer.step()
 

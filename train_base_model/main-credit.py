@@ -74,6 +74,11 @@ def run_experiment(device, args):
             vfltrainer.load_model(args.resume, device)
             print("=> loaded checkpoint '{}' (epoch: {} auc: {})"
                   .format(args.resume, checkpoint['epoch'], checkpoint['auc']))
+            acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
+            print(
+                "--- epoch: {0}, test_loss: {1}, test_acc: {2}, test_precison: {3}, test_recall: {4}, test_f1: {5}, test_auc: {6}"
+                .format(checkpoint['epoch'], test_loss, acc, precision, recall, f1, auc))
+            sys.exit(0)
 
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
@@ -92,14 +97,14 @@ def run_experiment(device, args):
 
         acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
 
-        wandb.log({"train_loss": train_loss[0],
-                   "test_loss": test_loss,
-                   "test_acc": acc,
-                   "test_precision": precision,
-                   "test_recall": recall,
-                   "test_f1": f1,
-                   "test_auc": auc
-                   })
+        # wandb.log({"train_loss": train_loss[0],
+        #            "test_loss": test_loss,
+        #            "test_acc": acc,
+        #            "test_precision": precision,
+        #            "test_recall": recall,
+        #            "test_f1": f1,
+        #            "test_auc": auc
+        #            })
 
         print(
             "--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
@@ -175,9 +180,9 @@ if __name__ == '__main__':
     freeze_rand(args.seed)
 
     # # 这个是一个类似tensorboard的东西,可视化实验过程
-    wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
-               name="VFL-{}".format(args.name),
-               config=args)
+    # wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
+    #            name="VFL-{}".format(args.name),
+    #            config=args)
 
     run_experiment(device=device, args=args)
 

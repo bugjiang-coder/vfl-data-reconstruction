@@ -6,102 +6,14 @@ import sys
 import numpy as np
 from sklearn.utils import shuffle
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 from fedml_core.preprocess.zhongyuan.preprocess_zhongyuan import preprocess_zhongyuan
 from fedml_core.utils.vfl_trainer import VFLTrainer
 from fedml_core.utils.utils import zhongyuan_dataset, tensor2df, Similarity, bool_loss, int_loss, neg_loss, normalize_loss
+from fedml_core.model.net import generator_model
 
 import torch
 import argparse
-
-
-def initData(dataShape, granularity, dataRange, indices=None):
-    # 更具indices的列表，生产初始化好的xGen值。
-    # 返回最优的初始值列表
-    # 注意indices的格式是[beam_size,维度]
-    # eg:[[0], [1]]
-
-    # 空数据 用于恢复数据
-    xGen = torch.zeros(dataShape, requires_grad=False)
-    if indices == None:
-        return [xGen]
-    else:
-        xGenList = [xGen.clone() for i in range(len(indices))]
-        # print(xGenList)
-        for i, index in enumerate(indices):
-            for j, setnum in enumerate(index):
-                if dataRange:
-                    x = dataRange[j]*(setnum / granularity)
-                else:
-                    # 规范化的数据，遵循3sigma原则
-                    x = 2 * (setnum / granularity) - 1
-                xGenList[i][:, j] = x
-    return xGenList
-
-
-def MSELOSS(net, NIters, xGen, refFeature, learningRate, eps):
-    optimizer = torch.optim.Adam(params=[xGen], lr=learningRate, eps=eps, amsgrad=True)
-    for j in range(NIters):  # 迭代优化
-        optimizer.zero_grad()
-        xFeature = net.forward(xGen)
-        loss = ((xFeature - refFeature) ** 2).mean() # 欧几里得距离 损失函数
-        loss.backward(retain_graph=True)
-        optimizer.step()
-    return loss
-
-def find_best_initial_value(originDataShape, net, protocolData, dataRange, device, args):
-    # step 取得向量的维度，以此获得搜索的次数
-    step = originDataShape[-1]
-
-    # TODO:注意这里批次大小为1
-
-    # 最优初始值的索引
-    indices = None
-
-    # 注意所有的数据的范围是不一致的，所以初始化也不一样。
-    for i in range(step):
-        allLoss = None
-        for j in range(args.granularity):
-            xGenList = initData(originDataShape, args.granularity, dataRange, indices)
-            for xGen in xGenList:
-                if dataRange:
-                    x = dataRange[i] * (j / args.granularity)
-                else:
-                    # 规范化的数据，遵守3sigma原则
-                    x = 2 * (j / args.granularity) - 1
-                xGen[:, i] = x
-                xGen = xGen.to(device)
-                #  一定要修改完成后再设置需要梯度  设置使用梯度
-                xGen.requires_grad = True
-
-                loss = MSELOSS(net, int(args.NIters / 500), xGen, protocolData, args.lr, args.eps)
-                if allLoss == None:
-                    allLoss = loss.unsqueeze(-1)
-                else:
-                    allLoss = torch.cat([allLoss, loss.unsqueeze(-1)], dim=-1)
-        # 找到loss最小的beam_size个
-        _, topIndices = allLoss.topk(args.beam_size, largest=False)
-
-
-        if indices == None:
-            topIndices = topIndices.cpu().detach().numpy().tolist()
-            indices = []
-            for num in range(args.beam_size):
-                indices.append([topIndices[num]])
-        else:
-            # 按照10粒度*5束 里面选择最优的5个
-            # 同时要更新这5个里面的最优路径
-            totopIndices = topIndices.cpu().detach().numpy()
-            row = (totopIndices % args.beam_size).tolist()
-            index = (totopIndices // args.beam_size).tolist()
-            new_indices = []
-            for num in range(args.beam_size):
-                row_i = indices[row[num]].copy()
-                row_i.append(index[num])
-                new_indices.append(row_i)
-            indices = new_indices
-
-    return indices
 
 
 def rebuild(train_data, models, tab, device, args):
@@ -133,26 +45,37 @@ def rebuild(train_data, models, tab, device, args):
         (trn_X, trn_y) = train_queue.next()
         trn_X = [x.float().to(device) for x in trn_X]
 
+        localData = trn_X[0]
         originData = trn_X[1]
         protocolData = net.forward(originData).clone()
 
         print("originData:",originData)
 
-        # --------------------------------
+        # initdata = torch.randn(originData.size()).to(device)
+        initdata = torch.randn(originData.size()).to(device)
+        # initdata2 = torch.randn(localData.size()).to(device)
+        inputEntry = torch.cat((localData, initdata), dim=1)
+        # inputEntry = torch.cat((initdata2, initdata), dim=1)
+        # inputEntry = initdata
 
-        indices = find_best_initial_value(originDataShape=originData.size(), net=net, protocolData=protocolData,dataRange=tab['range'], device=device, args=args)
+        # 构建生成模型
+        GRN = generator_model(input_dim=inputEntry.shape[-1],intern_dim=inputEntry.shape[-1],output_dim=originData.shape[-1]).to(device)
 
-        # 获得最优的初始值，这里初始的xGen为0
-        xGenList = initData(originData.size(), args.granularity, tab['range'], indices)
-        xGen = xGenList[0].to(device)
-        xGen.requires_grad = True
 
-        # --------------------------------
-        optimizer = torch.optim.Adam(params=[xGen], lr=args.lr, eps=args.eps, amsgrad=True)
+        optimizer = torch.optim.Adam(params=GRN.parameters(), lr=args.lr, eps=args.eps, amsgrad=True)
 
         for j in range(args.NIters):  # 迭代优化
+
+            # if j%100==0:
+            #     print(inputEntry)
+            # initdata = torch.zeros(originData.size()).to(device)
+            # initdata2 = torch.zeros(localData.size()).to(device)
+            # inputEntry = torch.cat((initdata2, initdata), dim=1)
+            # inputEntry = torch.cat((localData, initdata), dim=1)
+
             optimizer.zero_grad()
 
+            xGen = GRN(inputEntry)
             xProtocolData = net.forward(xGen)
             featureLoss = ((xProtocolData - protocolData) ** 2).mean() # 欧几里得距离 损失函数
 
@@ -204,7 +127,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("TabRebuild")
-    parser.add_argument('--name', type=str, default='VFL-beam-search-sigma-beam-loss', help='experiment name')
+    parser.add_argument('--name', type=str, default='GRN+noloss', help='experiment name')
     parser.add_argument('--data_dir', default="/home/yangjirui/feature-infer-workspace/dataset/zhongyuan/",
                         help='location of the data corpus')
     parser.add_argument('--batch_size', type=int, default=1, help='batch size')
@@ -212,21 +135,19 @@ if __name__ == '__main__':
     parser.add_argument('--eps', type=float, default=1e-3)
     parser.add_argument('--workers', type=int, default=2, help='num of workers')
     parser.add_argument('--seed', type=int, default=1, help='random seed')
-    parser.add_argument('--origin_data_output', default="/home/yangjirui/paper-code/data/zhongyuan/2layer/bs/origin_data.csv",
+    parser.add_argument('--origin_data_output', default="/home/yangjirui/paper-code/data/zhongyuan/2layer/GRN/origin_data-norloss0001.csv",
                         help='location of the data corpus')
-    parser.add_argument('--inverse_data_output', default="/home/yangjirui/paper-code/data/zhongyuan/2layer/bs/inverse_data.csv",
+    parser.add_argument('--inverse_data_output', default="/home/yangjirui/paper-code/data/zhongyuan/2layer/GRN/inverse_data-norloss0001.csv",
                         help='location of the data corpus')
-
+    # parser.add_argument('--origin_data_output',default="",help='location of the data corpus')
+    # parser.add_argument('--inverse_data_output', default="", help='location of the data corpus')
     # ==========下面是几个重要的超参数==========
     parser.add_argument('--NIters', type=int, default=5000, help="Number of times to optimize")
     parser.add_argument('--Ndata', type=int, default=100, help="Recovery data quantity")
-    parser.add_argument('--iloss', type=float, default=0.1, help="Recovery data int loss intensity")
-    parser.add_argument('--bloss', type=float, default=0.01, help="Recovery data boolean loss intensity")
-    parser.add_argument('--nloss', type=float, default=1, help="Recovery data negative number loss intensity")
-    parser.add_argument('--granularity', type=int, default=10, help="Beam search granularity")
-    parser.add_argument('--beam_size', type=int, default=5, help="Beam search beam size (granularity>=beam_size)")
-    parser.add_argument('--norloss', type=float, default=0, help="Recovery data negative number loss intensity")
-
+    parser.add_argument('--iloss', type=float, default=0, help="Recovery data int loss intensity")
+    parser.add_argument('--bloss', type=float, default=0, help="Recovery data boolean loss intensity")
+    parser.add_argument('--nloss', type=float, default=0, help="Recovery data negative number loss intensity")
+    parser.add_argument('--norloss', type=float, default=0.0001, help="Recovery data negative number loss intensity")
 
 
     args = parser.parse_args()
@@ -251,8 +172,8 @@ if __name__ == '__main__':
     #            config=args)
 
     # 是否要规范化
-    train, test = preprocess_zhongyuan(args.data_dir,normalize=False)
-    # train, test = preprocess_zhongyuan(args.data_dir, normalize=True)
+    # train, test = preprocess_zhongyuan(args.data_dir,normalize=False)
+    train, test = preprocess_zhongyuan(args.data_dir, normalize=True)
     Xa_train, Xb_train, y_train = train
     Xa_test, Xb_test, y_test = test
 
@@ -262,12 +183,12 @@ if __name__ == '__main__':
     test = [Xa_test, Xb_test, y_test]
 
     base_path = '/home/yangjirui/paper-code/model/zhongyuan/'
-    # models = [
-    #     base_path + '2layer_normal_0.pth',
-    #     base_path + '2layer_normal_1.pth']
     models = [
-        base_path + '2layer_not_normal_0.pth',
-        base_path + '2layer_not_normal_1.pth']
+        base_path + '2layer_normal_0.pth',
+        base_path + '2layer_normal_1.pth']
+    # models = [
+    #     base_path + '2layer_not_normal_0.pth',
+    #     base_path + '2layer_not_normal_1.pth']
     # models = [
     #     base_path + '3layer_normal_0.pth',
     #     base_path + '3layer_normal_1.pth']
@@ -281,6 +202,7 @@ if __name__ == '__main__':
     #     base_path + '4layer_not_normal_0.pth',
     #     base_path + '4layer_not_normal_1.pth'
     # ]
+
     # 非规范化模型
     # models = ['/home/yangjirui/paper-code/model/zhongyuan/not-normalization_0.pth',
     #           '/home/yangjirui/paper-code/model/zhongyuan/not-normalization_1.pth']
@@ -289,18 +211,18 @@ if __name__ == '__main__':
     #           '/home/yangjirui/paper-code/model/zhongyuan/not-normalization-2layers_1.pth']
 
     # 指定rebuild的表格特征
-    # tab = {
-    #     'boolList':[7, 15],
-    #     'intList':[1, 4, 5, 6, 8, 9, 10, 11, 14, 16, 17, 18, 19, 20],
-    #     'range':[1000,20,1000,1000,100,10,10,1,10,10,10,3000,500000,200,40,1,100,100,100,10,20000,6000]
-    # }
-    # 规范化后使用下面的表格初始化
     tab = {
         'boolList':[7, 15],
-        'intList':[1, 4, 5, 6, 8, 9, 10, 11, 14, 16, 17, 18, 19, 20],
-        'range':None
+        'intList':[1, 4, 5, 6, 8, 9, 10, 11, 14, 16, 17, 18, 19, 20]
     }
 
     # 训练并生成
     # 白盒攻击本身并不需要训练数据
     rebuild(train_data=train, models=models, tab=tab, device=device, args=args)
+
+
+# 超参数的最佳记录
+# --zhognyuan 规范化
+# 不使用norlosss 最佳
+# 为什么拼上另外一半的数据，loss可以下降，我很不理解，这是为什么？
+# 如果是随机的呢？

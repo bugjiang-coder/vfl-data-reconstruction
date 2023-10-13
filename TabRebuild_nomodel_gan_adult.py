@@ -21,7 +21,6 @@ import torch.nn as nn
 import argparse
 import wandb
 import shutil
-from tqdm import tqdm
 
 import torch.nn.init as init
 
@@ -175,16 +174,21 @@ def freeze_rand(seed):
 
 
 
-def rebuild(train_data, test_data, tab, device, args):
+def rebuild(train_data, tab, device, args):
+    print("hyper-parameters:")
+    print("iteration optimization times: {0}".format(args.NIters))
+    print("iloss rate: {0}".format(args.iloss))
+    print("bloss rate: {0}".format(args.bloss))
+    print("nloss rate: {0}".format(args.nloss))
+    print("norloss rate: {0}".format(args.norloss))
+
     print("################################ load Federated Models ############################")
 
+    # 加载原始训练数据，用于对比恢复效果
     Xa_train, Xb_train, y_train = train_data
     train_dataset = adult_dataset(train_data)
     train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                                               num_workers=args.workers, drop_last=False)
-    test_dataset = adult_dataset(test_data)
-    test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-                                                num_workers=args.workers, drop_last=False)
     train_queue = iter(train_queue)
 
     # 加载VFL框架
@@ -218,55 +222,47 @@ def rebuild(train_data, test_data, tab, device, args):
 
     print("################################ recovery data ############################")
 
-    acc_list = []
-    onehot_acc_list = []
-    num_acc_list = []
-    similarity_list = []
-    euclidean_dist_list = []
-
-    for trn_X, trn_y in tqdm(train_queue):
+    for i in range(args.Ndata):
+        (trn_X, trn_y) = next(train_queue)
         trn_X = [x.float().to(device) for x in trn_X]
 
         originData = trn_X[1]
         protocolData = net.forward(originData).clone().detach()
+
         xGen_before = decoder(protocolData)
 
 
         onehot_index = tab['onehot']
         # originData = onehot_softmax(originData, onehot_index)
 
+
+
         xGen = onehot_softmax(xGen_before, onehot_index)
 
         acc, onehot_acc, num_acc = tabRebuildAcc(originData, xGen, tab)
+        print("acc:", acc)
+        print("onehot_acc:", onehot_acc)
+        print("num_acc:", num_acc)
+
         similarity = Similarity(xGen, originData)
         euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
-        # print("acc:", acc)
-        # print("onehot_acc:", onehot_acc)
-        # print("num_acc:", num_acc)
-        # print(f"Similarity: {similarity}")
-        # print(f"euclidean_dist: {euclidean_dist}")
-        acc_list.append(acc)
-        onehot_acc_list.append(onehot_acc)
-        num_acc_list.append(num_acc)
-        similarity_list.append(similarity)
-        euclidean_dist_list.append(euclidean_dist)
+        print(f"Similarity: {similarity}")
+        print(f"euclidean_dist: {euclidean_dist}")
 
-    acc = np.mean(acc_list)
-    onehot_acc = np.mean(onehot_acc_list)
-    num_acc = np.mean(num_acc_list)
-    similarity = np.mean(similarity_list)
-    euclidean_dist = np.mean(euclidean_dist_list)
-    print("acc:", acc)
-    print("onehot_acc:", onehot_acc)
-    print("num_acc:", num_acc)
-    print("similarity", similarity)
-    print("euclidean_dist", euclidean_dist)
-    print("################################ save data ############################")
-    if args.save != '':
-        if not os.path.exists(args.save):
-            os.makedirs(args.save)
+        print("################################ save data ############################")
+        if args.save != '':
+            if not os.path.exists(args.save):
+                os.makedirs(args.save)
 
-        record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist)         # # 保存元素数据
+            record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist)
+
+            # # 保存元素数据
+            # origin_data = tensor2df(originData.detach())
+            # # 判断路径是否存在
+            # origin_data.to_csv(args.save + "origin.csv", mode='a', header=False, index=False)
+            #
+            # inverse_data = tensor2df(xGen.detach())
+            # inverse_data.to_csv(args.save + "inverse.csv", mode='a', header=False, index=False)
 
 
 # 现在需要进行实验记录
@@ -376,4 +372,4 @@ if __name__ == '__main__':
 
     # 训练并生成
     # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=train, test_data=test, tab=tab, device=device, args=args)
+    rebuild(train_data=train, tab=tab, device=device, args=args)
