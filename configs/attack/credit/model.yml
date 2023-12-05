@@ -1,0 +1,42 @@
+# project-info
+name: decoder-rebuild-2layer-all-data
+
+
+# dir
+data_dir: /home/yangjirui/data/vfl-tab-reconstruction/dataset/credit/clients.xls
+#resume: ''
+#resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
+#save: ''
+save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/credit/v6/
+base_mode: /data/yangjirui/vfl-tab-reconstruction/model/credit/v6/best.pth.tar
+#decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/attack-model/decoder_model_360epoch-loss.pth.tar
+decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/credit/v6/attack-model/model.pth.tar
+#origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
+#rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
+
+# model
+report_freq: 10
+workers: 0
+
+
+# Hyperparameters
+lr: 0.001
+momentum: 0.9
+weight_decay: 3e-5
+gamma: 0.97
+epochs: 120
+batch_size: 64
+
+# 重建超参数
+NIters: 1000
+Ndata: 10
+bloss: 0
+bloss2: 0
+bloss2_v2: 0
+numloss: 0
+
+iloss: 0
+nloss: 0
+norloss: 0
+
+

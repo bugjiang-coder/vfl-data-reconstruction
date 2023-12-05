@@ -4,14 +4,23 @@ from sklearn.preprocessing import MinMaxScaler, LabelEncoder
 
 dataPath = '/home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv'
 
+# 注意该版本的preprocess 不使用one-hot编码
+#
+def to_int(df, col_features):
+    # 创建一个LabelEncoder对象
+    label_encoder = LabelEncoder()
+    # 使用LabelEncoder对特征进行整数编码
+    int_df = df[col_features].apply(lambda x: label_encoder.fit_transform(x))
+    # onehot_df = pd.get_dummies(df[col_features])
+    int_features = int_df.columns.values
+    discrete_index = {s: [i for i in range(len(int_features)) if s in int_features[i]] for s in col_features}
 
-def to_onehot(df, col_features):
-    # 对类别型特征进行one-hot编码,并返回离散特征的索引
-    onehot_df = pd.get_dummies(df[col_features])
-    onehot_features = onehot_df.columns.values
-    discrete_index = {s: [i for i in range(len(onehot_features)) if s in onehot_features[i]] for s in col_features}
+    # 将离散特征缩放到[0,1]之间
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    # int_df = scaler.fit_transform(int_df)
+    int_df = pd.DataFrame(scaler.fit_transform(int_df), columns=int_features)
 
-    return onehot_df, discrete_index
+    return int_df, discrete_index
 
 
 def preprocess(dataPath):
@@ -20,8 +29,6 @@ def preprocess(dataPath):
     df = pd.read_csv(dataPath, delimiter=';')
     # df.head()
     df.info()
-    # 对数据进行打乱
-    df = df.sample(frac=1, random_state=0)
 
     # 处理分类特征
     cate_cols = ['job', 'marital', 'education', 'default', 'housing', 'loan', 'contact', 'month', 'day_of_week',
@@ -33,15 +40,15 @@ def preprocess(dataPath):
     df_num_col = [col for col in df.columns if col not in cate_cols and col != 'y']
     target = df['y']
 
-    # 连续列缩放到[-1,1]之间
-    scaler = MinMaxScaler(feature_range=(-1, 1))
+    # 连续列缩放到[0,1]之间
+    scaler = MinMaxScaler(feature_range=(0, 1))
     df[df_num_col] = scaler.fit_transform(df[df_num_col])
 
     # -----------------------划分训练集和测试集-------------------------
-    Xa, Xa_index = to_onehot(df, df_object_col[::2])
+    Xa, Xa_index = to_int(df, df_object_col[::2])
     Xa = pd.concat([Xa, df[df_num_col[::2]]], axis=1).values
 
-    Xb, Xb_index = to_onehot(df, df_object_col[1::2])
+    Xb, Xb_index = to_int(df, df_object_col[1::2])
     Xb = pd.concat([Xb, df[df_num_col[1::2]]], axis=1).values
 
     y = target.values

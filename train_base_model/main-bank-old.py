@@ -9,10 +9,10 @@ from sklearn.utils import shuffle
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 # 加入模块的搜索路径
 
-from fedml_core.preprocess.credit.preprocess_credit import preprocess
-from fedml_core.model.creditModels import TopModel, BottomModel
-from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import credit_dataset, over_write_args_from_file, keep_predict_loss
+from fedml_core.preprocess.bank.preprocess_bank import preprocess
+from fedml_core.model.bankModels import active_model, passive_model
+from fedml_core.utils.vfl_trainer import VFLTrainer
+from fedml_core.utils.utils import bank_dataset, over_write_args_from_file
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -34,8 +34,8 @@ def run_experiment(device, args):
     # Xa_test, Xb_test, y_test = test_data
 
     # dataloader
-    train_dataset = credit_dataset(train_data)
-    test_dataset = credit_dataset(test_data)
+    train_dataset = bank_dataset(train_data)
+    test_dataset = bank_dataset(test_data)
 
     train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                                               num_workers=args.workers, drop_last=False)
@@ -44,20 +44,30 @@ def run_experiment(device, args):
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
-    top_model = TopModel(input_dim=200, output_dim=1)
-    bottom_model_list = [BottomModel(input_dim=Xa_train.shape[1], output_dim=100), BottomModel(input_dim=Xb_train.shape[1], output_dim=100)]
-    model_list = bottom_model_list + [top_model]
+    active_party = active_model(input_dim=Xa_train.shape[1], output_dim=1, k=args.k)
 
-    optimizer_list = [
+    passive_model_list = [passive_model(input_dim=Xb_train.shape[1], output_dim=100) for _ in
+                          range(args.k - 1)]
+    active_party.to(device)
+    for model in passive_model_list:
+        model.to(device)
+
+    active_optimizer = torch.optim.SGD(active_party.parameters(), args.lr, momentum=args.momentum,
+                                       weight_decay=args.weight_decay)
+
+    passive_optimizer_list = [
         torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
-        in model_list
+        in passive_model_list
     ]
+    # # 使用Adam优化器
+    # active_optimizer = torch.optim.Adam(active_party.parameters())
+    # passive_optimizer_list = [torch.optim.Adam(model.parameters()) for model in passive_model_list]
 
-    vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
+    vfltrainer = VFLTrainer(active_party, passive_model_list, active_optimizer, passive_optimizer_list, args)
 
     # loss function
     criterion = nn.BCEWithLogitsLoss(reduction='sum').to(device)
-    bottom_criterion = keep_predict_loss
+    # loss_fn = torch.nn.CrossEntropyLoss()
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -85,11 +95,11 @@ def run_experiment(device, args):
 
         logging.info('epoch %d args.lr %e ', epoch, args.lr)
 
-        train_loss = vfltrainer.train(train_queue, criterion, bottom_criterion, optimizer_list, device, args)
+        train_loss = vfltrainer.train(train_queue, criterion, device, args)
 
         # [optimizer_list[i].zero_grad() for i in range(k)]
 
-        test_loss, acc, auc, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
+        acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
 
         # wandb.log({"train_loss": train_loss[0],
         #            "test_loss": test_loss,
@@ -102,7 +112,7 @@ def run_experiment(device, args):
 
         print(
             "--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
-            .format(epoch, train_loss, test_loss, acc, precision, recall, f1, auc))
+            .format(epoch, train_loss[0], test_loss, acc, precision, recall, f1, auc))
 
         ## save partyA and partyB model parameters
         if epoch % 2 == 0:
@@ -131,7 +141,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("vflmodelnet")
-    parser.add_argument('--data_dir', default='/home/yangjirui/data/vfl-tab-reconstruction/dataset/credit/clients.xls',
+    parser.add_argument('--data_dir', default='/home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv',
                         help='location of the data corpus')
     parser.add_argument('--name', type=str, default='bank-2layer-enhance2', help='experiment name')
     parser.add_argument('--batch_size', type=int, default=64, help='batch size')
@@ -159,7 +169,7 @@ if __name__ == '__main__':
                         help='path to save checkpoint (default: none)')
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/train/credit_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/train/bank_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -173,7 +183,7 @@ if __name__ == '__main__':
 
     freeze_rand(args.seed)
 
-    # # 这个是一个类似tensorboard的东西,可视化实验过程
+    # # # 这个是一个类似tensorboard的东西,可视化实验过程
     # wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
     #            name="VFL-{}".format(args.name),
     #            config=args)

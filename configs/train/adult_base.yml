@@ -5,9 +5,9 @@ name: adult-base
 # dir
 data_dir: ../dataset/adult/adult.data
 #resume: ''
-resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v3/best.pth.tar
+resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/best.pth.tar
 # 从V3开始，正式进入论文的实验阶段
-save: /data/yangjirui/vfl-tab-reconstruction/model/adult/v3/
+save: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/
 
 # model
 report_freq: 10

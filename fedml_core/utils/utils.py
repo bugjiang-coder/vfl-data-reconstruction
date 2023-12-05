@@ -7,6 +7,24 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 
 
+class AverageMeter(object):
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+
 class ModelTrainer(ABC):
     """联邦学习训练器的抽象基类
        1. The goal of this abstract class is to be compatible to
@@ -92,6 +110,18 @@ class bank_dataset(Dataset):
     def __init__(self, data):
         # data = data
         self.Xa, self.Xb, self.y = data
+    def __getitem__(self, item):
+        Xa = self.Xa[item]
+        Xb = self.Xb[item]
+        y = self.y[item]
+
+        return [np.float32(Xa), np.float32(Xb)], np.float32(y)
+
+class credit_dataset(Dataset):
+    def __init__(self, data):
+        # data = data
+        self.Xa, self.Xb, self.y = data
+
     def __getitem__(self, item):
         Xa = self.Xa[item]
         Xb = self.Xb[item]
@@ -189,8 +219,57 @@ def tabRebuildAcc(originData, rebuildData, tab, sigma=0.2):
 
     return (numsuccessnum+onehotsuccessnum)/((len(tab['numList']) + len(onehot_index)) * rebuildData.shape[0]), onehot_acc, num_acc
 
+def keep_predict_loss(y_true, y_pred):
+    return torch.sum(y_true * y_pred)
+
+def test_rebuild_acc(train_queue, net, decoder, tab, device, args):
+# for i in range(args.Ndata):
+    #     (trn_X, trn_y) = next(train_queue)
+    acc_list = []
+    onehot_acc_list = []
+    num_acc_list = []
+    similarity_list = []
+    euclidean_dist_list = []
+
+    #  最后测试重建准确率需要在训练集上进行
+    for trn_X, trn_y in train_queue:
+        trn_X = [x.float().to(device) for x in trn_X]
+
+        originData = trn_X[1]
+        protocolData = net.forward(originData).clone().detach()
+
+        xGen_before = decoder(protocolData)
 
 
+        onehot_index = tab['onehot']
+        # originData = onehot_softmax(originData, onehot_index)
+
+
+
+        xGen = onehot_softmax(xGen_before, onehot_index)
+
+        acc, onehot_acc, num_acc = tabRebuildAcc(originData, xGen, tab)
+        similarity = Similarity(xGen, originData)
+        euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
+
+        acc_list.append(acc)
+        onehot_acc_list.append(onehot_acc)
+        num_acc_list.append(num_acc)
+        similarity_list.append(similarity)
+        euclidean_dist_list.append(euclidean_dist)
+
+    acc = np.mean(acc_list)
+    onehot_acc = np.mean(onehot_acc_list)
+    num_acc = np.mean(num_acc_list)
+    similarity = np.mean(similarity_list)
+    euclidean_dist = np.mean(euclidean_dist_list)
+    # print("acc:", acc)
+    # print("onehot_acc:", onehot_acc)
+    # print("num_acc:", num_acc)
+    # print("similarity", similarity)
+    # print("euclidean_dist", euclidean_dist)
+
+    return acc, onehot_acc, num_acc, similarity, euclidean_dist
 
 # =================================为表格设计的损失函数=================================
 def bool_loss(input, boolList=None):

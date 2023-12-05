@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.model.net import active_model, passive_model, passive_decoder_model
 from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, test_rebuild_acc, onehot_bool_loss, num_loss
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, onehot_bool_loss_v2, onehot_bool_loss, num_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -45,12 +45,7 @@ def train_decoder(net, train_queue, device, args):
         return decoder
 
     print("################################ Train Decoder Models ############################")
-
-    epoch = 0
-    bestAcc = 0
-    consecutive_decreases = 0
-    while True:
-        # train and update
+    for epoch in range(0, 10):
         epoch_loss = []
         for step, (trn_X, trn_y) in enumerate(train_queue):
             if step == 1:
@@ -64,32 +59,114 @@ def train_decoder(net, train_queue, device, args):
 
                 optimizer.step()
                 print("loss:", loss.item())
+                # batch_loss.append(loss.item())
 
-        epoch += 1
 
-        if epoch % 10 == 0:
-            acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
-                                                                                    device, args)
-            print(
-                f"acc: {acc}, onehot_acc: {onehot_acc}, num_acc: {num_acc}, similarity: {similarity}, euclidean_dist: {euclidean_dist}")
 
-            if acc >= bestAcc:
-                consecutive_decreases = 0
-                bestAcc = acc
-                # 检查args.decoder_mode目录是否存在
-                save_dir = os.path.dirname(args.decoder_mode)
-                if not os.path.exists(save_dir):
-                    os.makedirs(save_dir)
+        # epoch_loss.append(sum(batch_loss) / len(batch_loss))
+    for epoch in range(0, 1):
+        # train and update
+        epoch_loss = []
+        for step, (trn_X, trn_y) in enumerate(train_queue):
+            trn_X = [x.float().to(device) for x in trn_X]
+            batch_loss = []
 
-                torch.save(decoder, args.decoder_mode)
-            else:
-                consecutive_decreases += 1
+            optimizer.zero_grad()
 
-            if consecutive_decreases >= 2:
-                break
 
-    # torch.save(decoder, args.decoder_mode)
-    # print("model saved")
+            out = decoder(net(trn_X[1]))
+
+            # if step == 1:
+            #     loss = criterion(out, trn_X[1])
+            # else:
+            #     continue
+            numloss = num_loss(out, tab['numList'])
+            bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
+            bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+
+            loss = args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
+
+            loss.backward()
+
+            optimizer.step()
+
+            batch_loss.append(loss.item())
+        epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+
+        print(
+            "--- epoch: {0}, train_loss: {1}"
+            .format(epoch, epoch_loss))
+
+    for epoch in range(0, 10):
+        epoch_loss = []
+        for step, (trn_X, trn_y) in enumerate(train_queue):
+            if step == 1:
+                trn_X = [x.float().to(device) for x in trn_X]
+                batch_loss = []
+
+                optimizer.zero_grad()
+                out = decoder(net(trn_X[1]))
+                loss = criterion(out, trn_X[1])
+                loss.backward()
+
+                optimizer.step()
+                print("loss:", loss.item())
+                # batch_loss.append(loss.item())
+
+
+
+        # epoch_loss.append(sum(batch_loss) / len(batch_loss))
+    for epoch in range(0, 1):
+        # train and update
+        epoch_loss = []
+        for step, (trn_X, trn_y) in enumerate(train_queue):
+            trn_X = [x.float().to(device) for x in trn_X]
+            batch_loss = []
+
+            optimizer.zero_grad()
+
+
+            out = decoder(net(trn_X[1]))
+
+            # if step == 1:
+            #     loss = criterion(out, trn_X[1])
+            # else:
+            #     continue
+            numloss = num_loss(out, tab['numList'])
+            bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
+            bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+
+            loss = args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
+
+            loss.backward()
+
+            optimizer.step()
+
+            batch_loss.append(loss.item())
+        epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+
+        print(
+            "--- epoch: {0}, train_loss: {1}"
+            .format(epoch, epoch_loss))
+
+    for epoch in range(0, 80):
+        epoch_loss = []
+        for step, (trn_X, trn_y) in enumerate(train_queue):
+            if step == 1:
+                trn_X = [x.float().to(device) for x in trn_X]
+                batch_loss = []
+
+                optimizer.zero_grad()
+                out = decoder(net(trn_X[1]))
+                loss = criterion(out, trn_X[1])
+                loss.backward()
+
+                optimizer.step()
+                print("loss:", loss.item())
+    torch.save(decoder, args.decoder_mode)
+    print("model saved")
     return decoder
 
 
@@ -289,7 +366,7 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/adult/nothing.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/decoder_weak/adult_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)

@@ -21,6 +21,8 @@ def preprocess(dataPath):
     # df = pd.read_csv(dataPath, delimiter=';')
     # df.head()
     df.info()
+    # 对数据进行打乱
+    df = df.sample(frac=1, random_state=0)
 
     # 处理分类特征
     cate_cols = ['SEX', 'EDUCATION', 'MARRIAGE', 'PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6'

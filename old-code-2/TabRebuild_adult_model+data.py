@@ -8,13 +8,13 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.utils import shuffle
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
 
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.model.net import active_model, passive_model, passive_decoder_model
 from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, onehot_bool_loss_v2, onehot_bool_loss, num_loss
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, test_rebuild_acc, onehot_bool_loss, num_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -23,24 +23,8 @@ import argparse
 import wandb
 import shutil
 
-def single_tabRebuildAcc(tab):
-    data = torch.zeros(tab['numList'][-1]+1)
-    for index in tab['numList']:
-        data[index] = torch.rand(1)
-    # data[-1] = torch.rand(1)
 
-    for key, indices in tab['onehot'].items():
-        random_index = random.choice(indices)  # 随机选择一个索引
-        data[random_index] = 1  # 将选择的索引处的值设置为1
-
-    return data
-def tabDataGen(tab, batch_size, device='cpu'):
-    data = torch.stack([single_tabRebuildAcc(tab) for _ in range(batch_size)])
-    data = data.to(device)
-    return data
-
-
-def train_decoder(net, train_queue, device, args):
+def train_decoder(net, train_queue, test_queue, tab, device, args):
     # 注意这个decoder 需要使用测试集进行训练
 
     print("################################ Set Federated Models, optimizer, loss ############################")
@@ -64,22 +48,20 @@ def train_decoder(net, train_queue, device, args):
     print("################################ Train Decoder Models ############################")
 
 
-    for epoch in range(0, 360):
+    # for epoch in range(0, 360):
+    epoch = 0
+    bestAcc = 0
+    consecutive_decreases = 0
+    while True:
         # train and update
         epoch_loss = []
-        for step in range(len(train_queue)*2):
-            # rand_X = torch.rand_like(trn_X)
-            # rand_X = [torch.rand_like(x) for x in trn_X]
-            # trn_X = [x.float().to(device) for x in rand_X]
-
-            trn_X = tabDataGen(tab, args.batch_size, device=device)
-
+        for step, (trn_X, trn_y) in enumerate(test_queue):
+            trn_X = [x.float().to(device) for x in trn_X]
             batch_loss = []
-
 
             optimizer.zero_grad()
 
-            out = decoder(net(trn_X))
+            out = decoder(net(trn_X[1]))
 
             # numloss = num_loss(out, tab['numList'])
             # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
@@ -87,7 +69,7 @@ def train_decoder(net, train_queue, device, args):
             #
             # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
 
-            loss = criterion(out, trn_X)
+            loss = criterion(out, trn_X[1])
             loss.backward()
 
             optimizer.step()
@@ -95,12 +77,32 @@ def train_decoder(net, train_queue, device, args):
             batch_loss.append(loss.item())
         epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
+        epoch += 1
+        print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
 
-        print(
-            "--- epoch: {0}, train_loss: {1}"
-            .format(epoch, epoch_loss))
+        if epoch % 10 == 0:
+            acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
+                                                                                    device, args)
+            print(
+                f"acc: {acc}, onehot_acc: {onehot_acc}, num_acc: {num_acc}, similarity: {similarity}, euclidean_dist: {euclidean_dist}")
 
-    torch.save(decoder, args.decoder_mode)
+            if acc >= bestAcc:
+                consecutive_decreases = 0
+                bestAcc = acc
+                # 检查args.decoder_mode目录是否存在
+                save_dir = os.path.dirname(args.decoder_mode)
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
+
+                torch.save(decoder, args.decoder_mode)
+            else:
+                consecutive_decreases += 1
+
+            if consecutive_decreases >= 2:
+                break
+
+
+
     print("model saved")
     return decoder
 
@@ -156,10 +158,11 @@ def rebuild(train_data, test_data, tab, device, args):
 
     net = vfltrainer.passive_model_list[0].to(device)  # 需要恢复数据的网络
 
-    decoder = train_decoder(net, train_queue, device, args)
+    decoder = train_decoder(net, train_queue, test_queue, tab, device, args)
 
     print("################################ recovery data ############################")
 
+    # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab, device, args)
     # for i in range(args.Ndata):
     #     (trn_X, trn_y) = next(train_queue)
     acc_list = []
@@ -292,7 +295,7 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/whitebox_gen/adult_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/adult/model+data.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)

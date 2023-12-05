@@ -3,12 +3,10 @@ import os
 import copy
 import argparse
 import torch
-from multiprocessing import Pool
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 sys.path.append('/data/yangjirui/vfl-tab-reconstruction')
 from TabRebuild_white_adult import *
-from concurrent.futures import ProcessPoolExecutor
 
 
 def set_args(parser):

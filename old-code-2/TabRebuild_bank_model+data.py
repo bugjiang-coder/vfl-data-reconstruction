@@ -5,16 +5,16 @@ import sys
 import pandas as pd
 
 import numpy as np
-from sklearn.utils import shuffle
 from tqdm import tqdm
+from sklearn.utils import shuffle
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
 
-from fedml_core.preprocess.adult.preprocess_adult import preprocess
-from fedml_core.model.net import active_model, passive_model, passive_decoder_model
-from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, onehot_bool_loss_v2, onehot_bool_loss, num_loss
+from fedml_core.preprocess.bank.preprocess_bank import preprocess
+from fedml_core.model.bankModels import TopModel, BottomModel, BottomModelDecoder
+from fedml_core.trainer.vfl_trainer import VFLTrainer
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, test_rebuild_acc, onehot_bool_loss_v2, onehot_bool_loss, num_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -24,12 +24,17 @@ import wandb
 import shutil
 
 
-def train_decoder(net, train_queue, device, args):
+def train_decoder(net, train_queue, test_queue, device, args):
+    # 注意这个decoder 需要使用测试集进行训练
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
-    decoder = passive_decoder_model(input_dim=20, intern_dim=20, output_dim=Xb_train.shape[1]).to(device)
-
+    # net_output = net(torch.zeros_like(Xb_train).to(device))
+    # print(next(iter(train_queue)))
+    # print(next(iter(train_queue))[0][1].shape)
+    net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
+    # print(net_output.shape)
+    decoder = BottomModelDecoder(input_dim=net_output.shape[1], output_dim=Xb_train.shape[1]).to(device)
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                        weight_decay=args.weight_decay)
@@ -45,47 +50,28 @@ def train_decoder(net, train_queue, device, args):
         return decoder
 
     print("################################ Train Decoder Models ############################")
-    for epoch in range(0, 10):
-        epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(train_queue):
-            if step == 1:
-                trn_X = [x.float().to(device) for x in trn_X]
-                batch_loss = []
 
-                optimizer.zero_grad()
-                out = decoder(net(trn_X[1]))
-                loss = criterion(out, trn_X[1])
-                loss.backward()
-
-                optimizer.step()
-                print("loss:", loss.item())
-                # batch_loss.append(loss.item())
-
-
-
-        # epoch_loss.append(sum(batch_loss) / len(batch_loss))
-    for epoch in range(0, 1):
+    epoch = 0
+    bestAcc = 0
+    consecutive_decreases = 0
+    while True:
         # train and update
         epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(train_queue):
+        for step, (trn_X, trn_y) in enumerate(test_queue):
             trn_X = [x.float().to(device) for x in trn_X]
             batch_loss = []
 
             optimizer.zero_grad()
 
-
             out = decoder(net(trn_X[1]))
 
-            # if step == 1:
-            #     loss = criterion(out, trn_X[1])
-            # else:
-            #     continue
-            numloss = num_loss(out, tab['numList'])
-            bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
-            bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+            # numloss = num_loss(out, tab['numList'])
+            # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
+            # bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+            #
+            # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
 
-            loss = args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
-
+            loss = criterion(out, trn_X[1])
             loss.backward()
 
             optimizer.step()
@@ -93,79 +79,30 @@ def train_decoder(net, train_queue, device, args):
             batch_loss.append(loss.item())
         epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
+        epoch += 1
+        print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
 
-        print(
-            "--- epoch: {0}, train_loss: {1}"
-            .format(epoch, epoch_loss))
+        if epoch % 10 == 0:
+            acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
+                                                                                    device, args)
+            print(
+                f"acc: {acc}, onehot_acc: {onehot_acc}, num_acc: {num_acc}, similarity: {similarity}, euclidean_dist: {euclidean_dist}")
 
-    for epoch in range(0, 10):
-        epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(train_queue):
-            if step == 1:
-                trn_X = [x.float().to(device) for x in trn_X]
-                batch_loss = []
+            if acc >= bestAcc:
+                consecutive_decreases = 0
+                bestAcc = acc
+                # 检查args.decoder_mode目录是否存在
+                save_dir = os.path.dirname(args.decoder_mode)
+                if not os.path.exists(save_dir):
+                    os.makedirs(save_dir)
 
-                optimizer.zero_grad()
-                out = decoder(net(trn_X[1]))
-                loss = criterion(out, trn_X[1])
-                loss.backward()
+                torch.save(decoder, args.decoder_mode)
+            else:
+                consecutive_decreases += 1
 
-                optimizer.step()
-                print("loss:", loss.item())
-                # batch_loss.append(loss.item())
+            if consecutive_decreases >= 2:
+                break
 
-
-
-        # epoch_loss.append(sum(batch_loss) / len(batch_loss))
-    for epoch in range(0, 1):
-        # train and update
-        epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(train_queue):
-            trn_X = [x.float().to(device) for x in trn_X]
-            batch_loss = []
-
-            optimizer.zero_grad()
-
-
-            out = decoder(net(trn_X[1]))
-
-            # if step == 1:
-            #     loss = criterion(out, trn_X[1])
-            # else:
-            #     continue
-            numloss = num_loss(out, tab['numList'])
-            bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
-            bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
-
-            loss = args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
-
-            loss.backward()
-
-            optimizer.step()
-
-            batch_loss.append(loss.item())
-        epoch_loss.append(sum(batch_loss) / len(batch_loss))
-
-
-        print(
-            "--- epoch: {0}, train_loss: {1}"
-            .format(epoch, epoch_loss))
-
-    for epoch in range(0, 80):
-        epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(train_queue):
-            if step == 1:
-                trn_X = [x.float().to(device) for x in trn_X]
-                batch_loss = []
-
-                optimizer.zero_grad()
-                out = decoder(net(trn_X[1]))
-                loss = criterion(out, trn_X[1])
-                loss.backward()
-
-                optimizer.step()
-                print("loss:", loss.item())
-    torch.save(decoder, args.decoder_mode)
     print("model saved")
     return decoder
 
@@ -183,13 +120,6 @@ def freeze_rand(seed):
 
 
 def rebuild(train_data, test_data, tab, device, args):
-    print("hyper-parameters:")
-    print("iteration optimization times: {0}".format(args.NIters))
-    print("bloss2 rate: {0}".format(args.bloss2))
-    print("bloss2_v2 rate: {0}".format(args.bloss2_v2))
-    print("numloss rate: {0}".format(args.numloss))
-    print("norloss rate: {0}".format(args.norloss))
-
     print("################################ load Federated Models ############################")
 
     # 加载原始训练数据，用于对比恢复效果
@@ -201,25 +131,12 @@ def rebuild(train_data, test_data, tab, device, args):
     test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
                                                 num_workers=args.workers, drop_last=False)
 
-
     # 加载VFL框架
-    active_party = active_model(input_dim=Xa_train.shape[1], intern_dim=20, num_classes=1, k=args.k)
+    top_model = TopModel(input_dim=200, output_dim=1)
+    bottom_model_list = [BottomModel(input_dim=Xa_train.shape[1], output_dim=100),
+                         BottomModel(input_dim=Xb_train.shape[1], output_dim=100)]
 
-    passive_model_list = [passive_model(input_dim=Xb_train.shape[1], intern_dim=20, output_dim=20) for _ in
-                          range(args.k - 1)]
-    active_party.to(device)
-    for model in passive_model_list:
-        model.to(device)
-
-    active_optimizer = torch.optim.SGD(active_party.parameters(), args.lr, momentum=args.momentum,
-                                       weight_decay=args.weight_decay)
-
-    passive_optimizer_list = [
-        torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
-        in passive_model_list
-    ]
-
-    vfltrainer = VFLTrainer(active_party, passive_model_list, active_optimizer, passive_optimizer_list, args)
+    vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
     checkpoint = torch.load(args.base_mode, map_location=device)
     args.start_epoch = checkpoint['epoch']
@@ -227,13 +144,14 @@ def rebuild(train_data, test_data, tab, device, args):
     print("=> loaded model '{}' (epoch: {} auc: {})"
           .format(args.base_mode, checkpoint['epoch'], checkpoint['auc']))
 
-    net = vfltrainer.passive_model_list[0].to(device)  # 需要恢复数据的网络
+    net = vfltrainer.bottom_model_list[1].to(device)  # 需要恢复数据的网络
 
-    decoder = train_decoder(net, train_queue, device, args)
+    decoder = train_decoder(net, train_queue, test_queue, device, args)
 
     print("################################ recovery data ############################")
 
     # for i in range(args.Ndata):
+    #     (trn_X, trn_y) = next(train_queue)
     acc_list = []
     onehot_acc_list = []
     num_acc_list = []
@@ -242,7 +160,6 @@ def rebuild(train_data, test_data, tab, device, args):
 
     #  最后测试重建准确率需要在训练集上进行
     for trn_X, trn_y in tqdm(train_queue):
-        # (trn_X, trn_y) = next(train_queue)
         trn_X = [x.float().to(device) for x in trn_X]
 
         originData = trn_X[1]
@@ -282,7 +199,6 @@ def rebuild(train_data, test_data, tab, device, args):
     print("num_acc:", num_acc)
     print("similarity", similarity)
     print("euclidean_dist", euclidean_dist)
-
     print("################################ save data ############################")
     if args.save != '':
         if not os.path.exists(args.save):
@@ -314,7 +230,7 @@ def record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist
         # print(f"{key}: {args.__dict__[key]}")  # 添加打印语句，检查属性值
     # print(df)
     print(df.values)
-    df.to_csv(args.save + "record_experiment_decoder_weak.csv", mode='a', header=False, index=False)
+    df.to_csv(args.save + "record_experiment_decoder.csv", mode='a', header=False, index=False)
 
 
 
@@ -334,7 +250,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("TabRebuild")
-    parser.add_argument('--name', type=str, default='decoder-rebuild', help='experiment name')
+    parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
                         help='location of the data corpus')
     parser.add_argument('--batch_size', type=int, default=1, help='batch size')
@@ -366,7 +282,7 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/decoder_weak/adult_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/bank/model+data.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -390,17 +306,15 @@ if __name__ == '__main__':
     test = [Xa_test, Xb_test, y_test]
 
     # 指定rebuild的表格特征
+
     tab = {
-        'boolList': [i for i in range(0, 76)],
+        'boolList': [i for i in range(0, 22)],
         'onehot': {
-            'education': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            'occupation': [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-            'race': [30, 31, 32, 33, 34],
-            'native-country': [
-                35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
-                61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
+            'marital': [0, 1, 2, 3], 'default': [4, 5, 6],
+            'loan': [7, 8, 9], 'month': [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+            'poutcome': [20, 21, 22]
         },
-        'numList': [76]
+        'numList': [i for i in range(23, 28)]
     }
 
     # 训练并生成

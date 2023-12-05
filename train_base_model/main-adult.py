@@ -10,9 +10,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 # 加入模块的搜索路径
 
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
-from fedml_core.model.net import active_model, passive_model
-from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file
+from fedml_core.model.adultModels import TopModel, BottomModel
+from fedml_core.trainer.vfl_trainer import VFLTrainer
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, keep_predict_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -44,26 +44,20 @@ def run_experiment(device, args):
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
-    active_party = active_model(input_dim=Xa_train.shape[1], intern_dim=20, num_classes=1, k=args.k)
+    top_model = TopModel(input_dim=200, output_dim=1)
+    bottom_model_list = [BottomModel(input_dim=Xa_train.shape[1], output_dim=100), BottomModel(input_dim=Xb_train.shape[1], output_dim=100)]
+    model_list = bottom_model_list + [top_model]
 
-    passive_model_list = [passive_model(input_dim=Xb_train.shape[1], intern_dim=20, output_dim=20) for _ in
-                          range(args.k - 1)]
-    active_party.to(device)
-    for model in passive_model_list:
-        model.to(device)
-
-    active_optimizer = torch.optim.SGD(active_party.parameters(), args.lr, momentum=args.momentum,
-                                       weight_decay=args.weight_decay)
-
-    passive_optimizer_list = [
+    optimizer_list = [
         torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
-        in passive_model_list
+        in model_list
     ]
 
-    vfltrainer = VFLTrainer(active_party, passive_model_list, active_optimizer, passive_optimizer_list, args)
+    vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
     # loss function
     criterion = nn.BCEWithLogitsLoss(reduction='sum').to(device)
+    bottom_criterion = keep_predict_loss
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -91,11 +85,11 @@ def run_experiment(device, args):
 
         logging.info('epoch %d args.lr %e ', epoch, args.lr)
 
-        train_loss = vfltrainer.train(train_queue, criterion, device, args)
+        train_loss = vfltrainer.train(train_queue, criterion, bottom_criterion, optimizer_list, device, args)
 
         # [optimizer_list[i].zero_grad() for i in range(k)]
 
-        acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
+        test_loss, acc, auc, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
 
         # wandb.log({"train_loss": train_loss[0],
         #            "test_loss": test_loss,
@@ -108,7 +102,12 @@ def run_experiment(device, args):
 
         print(
             "--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
-            .format(epoch, train_loss[0], test_loss, acc, precision, recall, f1, auc))
+            .format(epoch, train_loss, test_loss, acc, precision, recall, f1, auc))
+
+        # logger.info(
+        #     "--- epoch: {0}, train_loss: {1}, test_loss: {2}, test_acc: {3}, test_precision: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
+        #     .format(epoch, train_loss[0], test_loss, acc, precision, recall, f1, auc))
+
 
         ## save partyA and partyB model parameters
         if epoch % 2 == 0:
@@ -171,6 +170,10 @@ if __name__ == '__main__':
     over_write_args_from_file(args, args.c)
 
     logging.basicConfig()
+
+    # 基本配置
+    # logging.basicConfig(filename='example.log', level=logging.DEBUG)
+
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
 

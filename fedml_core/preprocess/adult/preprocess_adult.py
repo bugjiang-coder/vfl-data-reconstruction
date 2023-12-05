@@ -23,6 +23,8 @@ def preprocess(dataPath):
                             'native-country', 'income'])
     # df.head()
     df.info()
+    # 对数据进行打乱
+    df = df.sample(frac=1, random_state=0)
 
     # df.apply(lambda x: print(np.sum(x == " ?")))  有缺失值的共三列
 
@@ -81,5 +83,5 @@ if __name__ == "__main__":
     dataPath = '/home/yangjirui/data/vfl-tab-reconstruction/dataset/adult/adult.data'
 
     [Xa_train, Xb_train, y_train], [Xa_test, Xb_test, y_test] = preprocess(dataPath)
-    # for i in range(100):
-    #     print(Xb_train[i])
+    for i in range(1):
+        print(Xb_train[i])

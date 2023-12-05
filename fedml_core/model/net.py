@@ -26,6 +26,8 @@ class active_model(nn.Module):
             out = torch.cat([out] + [U for U in U_B], dim=1)
             #out = torch.cat((out, U_B), dim=1)
         logits = self.classifier(out)
+        # print(logits.shape)
+        # logits = self.sigmoid(logits)
         return logits
 
     def getLayerOutput(self, x, targetLayer):

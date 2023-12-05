@@ -5,8 +5,8 @@ import sys
 import pandas as pd
 
 import numpy as np
-from sklearn.utils import shuffle
 from tqdm import tqdm
+from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.model.net import active_model, passive_model, passive_decoder_model
 from fedml_core.utils.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, test_rebuild_acc, onehot_bool_loss, num_loss
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, onehot_bool_loss_v2, onehot_bool_loss, num_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -23,8 +23,25 @@ import argparse
 import wandb
 import shutil
 
+def single_tabRebuildAcc(tab):
+    data = torch.zeros(tab['numList'][-1]+1)
+    for index in tab['numList']:
+        data[index] = torch.rand(1)
+    # data[-1] = torch.rand(1)
+
+    for key, indices in tab['onehot'].items():
+        random_index = random.choice(indices)  # 随机选择一个索引
+        data[random_index] = 1  # 将选择的索引处的值设置为1
+
+    return data
+def tabDataGen(tab, batch_size, device='cpu'):
+    data = torch.stack([single_tabRebuildAcc(tab) for _ in range(batch_size)])
+    data = data.to(device)
+    return data
+
 
 def train_decoder(net, train_queue, device, args):
+    # 注意这个decoder 需要使用测试集进行训练
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
@@ -46,50 +63,45 @@ def train_decoder(net, train_queue, device, args):
 
     print("################################ Train Decoder Models ############################")
 
-    epoch = 0
-    bestAcc = 0
-    consecutive_decreases = 0
-    while True:
+
+    for epoch in range(0, 360):
         # train and update
         epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(train_queue):
-            if step == 1:
-                trn_X = [x.float().to(device) for x in trn_X]
-                batch_loss = []
+        for step in range(len(train_queue)*2):
+            # rand_X = torch.rand_like(trn_X)
+            # rand_X = [torch.rand_like(x) for x in trn_X]
+            # trn_X = [x.float().to(device) for x in rand_X]
 
-                optimizer.zero_grad()
-                out = decoder(net(trn_X[1]))
-                loss = criterion(out, trn_X[1])
-                loss.backward()
+            trn_X = tabDataGen(tab, args.batch_size, device=device)
 
-                optimizer.step()
-                print("loss:", loss.item())
+            batch_loss = []
 
-        epoch += 1
 
-        if epoch % 10 == 0:
-            acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
-                                                                                    device, args)
-            print(
-                f"acc: {acc}, onehot_acc: {onehot_acc}, num_acc: {num_acc}, similarity: {similarity}, euclidean_dist: {euclidean_dist}")
+            optimizer.zero_grad()
 
-            if acc >= bestAcc:
-                consecutive_decreases = 0
-                bestAcc = acc
-                # 检查args.decoder_mode目录是否存在
-                save_dir = os.path.dirname(args.decoder_mode)
-                if not os.path.exists(save_dir):
-                    os.makedirs(save_dir)
+            out = decoder(net(trn_X))
 
-                torch.save(decoder, args.decoder_mode)
-            else:
-                consecutive_decreases += 1
+            # numloss = num_loss(out, tab['numList'])
+            # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
+            # bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+            #
+            # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
 
-            if consecutive_decreases >= 2:
-                break
+            loss = criterion(out, trn_X)
+            loss.backward()
 
-    # torch.save(decoder, args.decoder_mode)
-    # print("model saved")
+            optimizer.step()
+
+            batch_loss.append(loss.item())
+        epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+
+        print(
+            "--- epoch: {0}, train_loss: {1}"
+            .format(epoch, epoch_loss))
+
+    torch.save(decoder, args.decoder_mode)
+    print("model saved")
     return decoder
 
 
@@ -106,13 +118,6 @@ def freeze_rand(seed):
 
 
 def rebuild(train_data, test_data, tab, device, args):
-    print("hyper-parameters:")
-    print("iteration optimization times: {0}".format(args.NIters))
-    print("bloss2 rate: {0}".format(args.bloss2))
-    print("bloss2_v2 rate: {0}".format(args.bloss2_v2))
-    print("numloss rate: {0}".format(args.numloss))
-    print("norloss rate: {0}".format(args.norloss))
-
     print("################################ load Federated Models ############################")
 
     # 加载原始训练数据，用于对比恢复效果
@@ -123,7 +128,6 @@ def rebuild(train_data, test_data, tab, device, args):
     test_dataset = adult_dataset(test_data)
     test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
                                                 num_workers=args.workers, drop_last=False)
-
 
     # 加载VFL框架
     active_party = active_model(input_dim=Xa_train.shape[1], intern_dim=20, num_classes=1, k=args.k)
@@ -157,6 +161,7 @@ def rebuild(train_data, test_data, tab, device, args):
     print("################################ recovery data ############################")
 
     # for i in range(args.Ndata):
+    #     (trn_X, trn_y) = next(train_queue)
     acc_list = []
     onehot_acc_list = []
     num_acc_list = []
@@ -165,7 +170,6 @@ def rebuild(train_data, test_data, tab, device, args):
 
     #  最后测试重建准确率需要在训练集上进行
     for trn_X, trn_y in tqdm(train_queue):
-        # (trn_X, trn_y) = next(train_queue)
         trn_X = [x.float().to(device) for x in trn_X]
 
         originData = trn_X[1]
@@ -205,7 +209,6 @@ def rebuild(train_data, test_data, tab, device, args):
     print("num_acc:", num_acc)
     print("similarity", similarity)
     print("euclidean_dist", euclidean_dist)
-
     print("################################ save data ############################")
     if args.save != '':
         if not os.path.exists(args.save):
@@ -237,7 +240,7 @@ def record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist
         # print(f"{key}: {args.__dict__[key]}")  # 添加打印语句，检查属性值
     # print(df)
     print(df.values)
-    df.to_csv(args.save + "record_experiment_decoder_weak.csv", mode='a', header=False, index=False)
+    df.to_csv(args.save + "record_experiment_decoder.csv", mode='a', header=False, index=False)
 
 
 
@@ -257,7 +260,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("TabRebuild")
-    parser.add_argument('--name', type=str, default='decoder-rebuild', help='experiment name')
+    parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
                         help='location of the data corpus')
     parser.add_argument('--batch_size', type=int, default=1, help='batch size')
@@ -289,7 +292,7 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/adult/nothing.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/whitebox_gen/adult_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)

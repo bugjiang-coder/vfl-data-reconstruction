@@ -6,7 +6,7 @@ import sys
 import numpy as np
 from sklearn.utils import shuffle
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.utils.vfl_trainer import VFLTrainer
 from fedml_core.model.net import active_model, passive_model

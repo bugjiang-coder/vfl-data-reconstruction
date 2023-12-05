@@ -297,7 +297,13 @@ class VFLTrainer(ModelTrainer):
                                                                     threshold=0.5)
 
                 acc = accuracy_score(target.cpu().numpy(), y_hat_lbls)
-                auc = roc_auc_score(target.cpu().numpy(), pred.cpu().numpy())
+
+                if len(np.unique(y_hat_lbls)) <= 1:  # if only one class
+                    # print("Only one class present in y_true. ROC AUC score cannot be computed.")
+                    auc = 0  # or any other default/fallback value you'd like to assign
+                else:
+                    auc = roc_auc_score(target.cpu().numpy(), pred.cpu().numpy())
+                # auc = roc_auc_score(target.cpu().numpy(), pred.cpu().numpy())
                 metrics = precision_recall_fscore_support(target.cpu().numpy(), y_hat_lbls, average="macro",
                                                           warn_for=tuple())
                 # print(classification_report(target.cpu().numpy(), y_hat_lbls))
