@@ -10,11 +10,12 @@ from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
+sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
 
-from fedml_core.preprocess.adult.preprocess_adult import preprocess
-from fedml_core.model.adultModels import TopModel, BottomModel, BottomModelDecoder
+from fedml_core.preprocess.credit.preprocess_credit import preprocess
+from fedml_core.model.creditModels import TopModel, BottomModel, BottomModelDecoder
 from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, test_rebuild_acc, onehot_bool_loss, num_loss
+from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, test_rebuild_acc, onehot_bool_loss_v2, onehot_bool_loss, num_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -24,16 +25,17 @@ import wandb
 import shutil
 
 
-def train_decoder(net, train_queue, test_queue, tab, device, args):
+def train_decoder(net, train_queue, test_queue, device, args):
     # 注意这个decoder 需要使用测试集进行训练
-
-    Xb_shape = train_queue.dataset.Xb.shape
-
+    Xb_train = train_queue.dataset.Xb
     print("################################ Set Federated Models, optimizer, loss ############################")
 
+    # net_output = net(torch.zeros_like(Xb_train).to(device))
+    # print(next(iter(train_queue)))
+    # print(next(iter(train_queue))[0][1].shape)
     net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
     # print(net_output.shape)
-    decoder = BottomModelDecoder(input_dim=net_output.shape[1], output_dim=Xb_shape[1]).to(device)
+    decoder = BottomModelDecoder(input_dim=net_output.shape[1], output_dim=Xb_train.shape[1]).to(device)
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                        weight_decay=args.weight_decay)
@@ -50,8 +52,6 @@ def train_decoder(net, train_queue, test_queue, tab, device, args):
 
     print("################################ Train Decoder Models ############################")
 
-
-    # for epoch in range(0, 360):
     epoch = 0
     bestAcc = 0
     consecutive_decreases = 0
@@ -90,7 +90,7 @@ def train_decoder(net, train_queue, test_queue, tab, device, args):
                 f"acc: {acc}, onehot_acc: {onehot_acc}, num_acc: {num_acc}, similarity: {similarity}, euclidean_dist: {euclidean_dist}")
 
             if acc >= bestAcc:
-                if abs(acc-bestAcc) < 0.0001:
+                if abs(acc - bestAcc) < 0.0001:
                     # 检查args.decoder_mode目录是否存在
                     save_dir = os.path.dirname(args.decoder_mode)
                     if not os.path.exists(save_dir):
@@ -98,23 +98,19 @@ def train_decoder(net, train_queue, test_queue, tab, device, args):
 
                     torch.save(decoder, args.decoder_mode)
                     break
-
                 consecutive_decreases = 0
                 bestAcc = acc
                 # 检查args.decoder_mode目录是否存在
                 save_dir = os.path.dirname(args.decoder_mode)
                 if not os.path.exists(save_dir):
                     os.makedirs(save_dir)
+
                 torch.save(decoder, args.decoder_mode)
-
-
             else:
                 consecutive_decreases += 1
 
             if consecutive_decreases >= 2:
                 break
-
-
 
     print("model saved")
     return decoder
@@ -151,20 +147,22 @@ def rebuild(train_data, test_data, tab, device, args):
 
     vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
-
     checkpoint = torch.load(args.base_mode, map_location=device)
     args.start_epoch = checkpoint['epoch']
     vfltrainer.load_model(args.base_mode, device)
     print("=> loaded model '{}' (epoch: {} auc: {})"
           .format(args.base_mode, checkpoint['epoch'], checkpoint['auc']))
+    criterion = nn.BCEWithLogitsLoss(reduction='sum').to(device)
+    test_loss, acc, auc, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
+    print(
+        f"--- epoch: {checkpoint['epoch']}, test_loss: {test_loss}, test_acc: {acc}, test_precison: {precision}, test_recall: {recall}, test_f1: {f1}, test_auc: {auc}")
 
     net = vfltrainer.bottom_model_list[1].to(device)  # 需要恢复数据的网络
 
-    decoder = train_decoder(net, train_queue, test_queue, tab, device, args)
+    decoder = train_decoder(net, train_queue, test_queue, device, args)
 
     print("################################ recovery data ############################")
 
-    # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab, device, args)
     # for i in range(args.Ndata):
     #     (trn_X, trn_y) = next(train_queue)
     acc_list = []
@@ -185,6 +183,8 @@ def rebuild(train_data, test_data, tab, device, args):
 
         onehot_index = tab['onehot']
         # originData = onehot_softmax(originData, onehot_index)
+
+
 
         xGen = onehot_softmax(xGen_before, onehot_index)
 
@@ -224,16 +224,7 @@ def rebuild(train_data, test_data, tab, device, args):
 
         record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist)
 
-            # # 保存元素数据
-            # origin_data = tensor2df(originData.detach())
-            # # 判断路径是否存在
-            # origin_data.to_csv(args.save + "origin.csv", mode='a', header=False, index=False)
-            #
-            # inverse_data = tensor2df(xGen.detach())
-            # inverse_data.to_csv(args.save + "inverse.csv", mode='a', header=False, index=False)
-
     return acc, onehot_acc, num_acc, similarity, euclidean_dist
-
 
 # 现在需要进行实验记录
 def record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist):
@@ -303,75 +294,53 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/adult/model+data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/attack/credit/model+data_ratio.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
 
-
     # 指定rebuild的表格特征
-    tab = {
-        'boolList': [i for i in range(0, 76)],
-        'onehot': {
-            'education': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            'occupation': [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-            'race': [30, 31, 32, 33, 34],
-            'native-country': [
-                35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
-                61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
-        },
-        'numList': [76]
+    tab_list = [{
+        'onehot': {'SEX': [0, 1], 'EDUCATION': [2, 3, 4, 5, 6, 7, 8], 'MARRIAGE': [9, 10, 11, 12],
+                   'PAY_0': [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+                   'PAY_2': [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34],
+                   'PAY_3': [35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45],
+                   'PAY_4': [46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56],
+                   'PAY_5': [57, 58, 59, 60, 61, 62, 63, 64, 65, 66],
+                   'PAY_6': [67, 68, 69, 70, 71, 72, 73, 74, 75, 76]},
+        'numList': [i for i in range(77, 90)]
+    }, {
+        'onehot': {'MARRIAGE': [0, 1, 2, 3], 'PAY_0': [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+                   'PAY_2': [15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+                   'PAY_3': [26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
+                   'PAY_4': [37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47],
+                   'PAY_5': [48, 49, 50, 51, 52, 53, 54, 55, 56, 57],
+                   'PAY_6': [58, 59, 60, 61, 62, 63, 64, 65, 66, 67]},
+        'numList': [i for i in range(68, 78)]
+    }, {
+        'onehot': {'PAY_4': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 'PAY_5': [11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+                   'PAY_6': [21, 22, 23, 24, 25, 26, 27, 28, 29, 30]},
+        'numList': [i for i in range(31, 36)]
+    }, {
+        'onehot': {'PAY_6': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]},
+        'numList': [i for i in range(10, 12)]
     }
+    ]
 
-    train, test = preprocess(args.data_dir)
+    decoder_mode = args.decoder_mode
+    # shadow_model = args.shadow_model
+    base_mode = args.base_mode
+    radio_list = [0.1, 0.3, 0.7, 0.9]
 
-    if args.multiple:
-        # 进行多次实验
-        acc_all, onehot_acc_all, num_acc_all, similarity_all, euclidean_dist_all = [], [], [], [], []
-        decoder_mode = args.decoder_mode
-        # shadow_model = args.shadow_model
-
-        for i in range(5):
-            # 设置随机种子
-            freeze_rand(args.seed + i)
-            # 是否要规范化
-            args.decoder_mode = decoder_mode + str(i)
-            # args.shadow_model = shadow_model + str(i)
-
-            # 训练并生成
-            # 白盒攻击本身并不需要训练数据
-            acc, onehot_acc, num_acc, similarity, euclidean_dist = rebuild(train_data=train, test_data=test, tab=tab,
-                                                                           device=device, args=args)
-            acc_all.append(acc)
-            onehot_acc_all.append(onehot_acc)
-            num_acc_all.append(num_acc)
-            similarity_all.append(similarity)
-            euclidean_dist_all.append(euclidean_dist)
-        # 计算均值和方差
-        acc_mean = np.mean(acc_all)
-        acc_std = np.std(acc_all)
-        onehot_acc_mean = np.mean(onehot_acc_all)
-        onehot_acc_std = np.std(onehot_acc_all)
-        num_acc_mean = np.mean(num_acc_all)
-        num_acc_std = np.std(num_acc_all)
-        similarity_mean = np.mean(similarity_all)
-        similarity_std = np.std(similarity_all)
-        euclidean_dist_mean = np.mean(euclidean_dist_all)
-        euclidean_dist_std = np.std(euclidean_dist_all)
-
-        # 打印结果
-        print(f"Accuracy: Mean = {acc_mean}, Std = {acc_std}")
-        print(f"One-hot Accuracy: Mean = {onehot_acc_mean}, Std = {onehot_acc_std}")
-        print(f"Numeric Accuracy: Mean = {num_acc_mean}, Std = {num_acc_std}")
-        print(f"Similarity: Mean = {similarity_mean}, Std = {similarity_std}")
-        print(f"Euclidean Distance: Mean = {euclidean_dist_mean}, Std = {euclidean_dist_std}")
-
-
-    else:
-        # 设置随机种子
+    for r in radio_list:
+        print("radio: ", r)
         freeze_rand(args.seed)
-        # 是否要规范化
+        train, test = preprocess(args.data_dir, A_ratio=r)
 
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
+        args.base_mode = base_mode + str(r)
+        args.decoder_mode = decoder_mode + str(r)
+        # args.shadow_model = shadow_model + str(r)
+
+        tab = tab_list[radio_list.index(r)]
+
         rebuild(train_data=train, test_data=test, tab=tab, device=device, args=args)

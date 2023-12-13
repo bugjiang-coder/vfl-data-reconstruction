@@ -10,6 +10,7 @@ from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
+sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
 
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.model.adultModels import TopModel, BottomModel, BottomModelDecoder
@@ -303,7 +304,7 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/adult/model+data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/attack/adult/model+data.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -325,53 +326,30 @@ if __name__ == '__main__':
 
     train, test = preprocess(args.data_dir)
 
-    if args.multiple:
-        # 进行多次实验
-        acc_all, onehot_acc_all, num_acc_all, similarity_all, euclidean_dist_all = [], [], [], [], []
-        decoder_mode = args.decoder_mode
-        # shadow_model = args.shadow_model
+    # Xa_test, Xb_test, y_test = test
 
-        for i in range(5):
-            # 设置随机种子
-            freeze_rand(args.seed + i)
-            # 是否要规范化
-            args.decoder_mode = decoder_mode + str(i)
-            # args.shadow_model = shadow_model + str(i)
+    data_ratio_list = [0.001, 0.01, 0.1, 0.5]
 
-            # 训练并生成
-            # 白盒攻击本身并不需要训练数据
-            acc, onehot_acc, num_acc, similarity, euclidean_dist = rebuild(train_data=train, test_data=test, tab=tab,
-                                                                           device=device, args=args)
-            acc_all.append(acc)
-            onehot_acc_all.append(onehot_acc)
-            num_acc_all.append(num_acc)
-            similarity_all.append(similarity)
-            euclidean_dist_all.append(euclidean_dist)
-        # 计算均值和方差
-        acc_mean = np.mean(acc_all)
-        acc_std = np.std(acc_all)
-        onehot_acc_mean = np.mean(onehot_acc_all)
-        onehot_acc_std = np.std(onehot_acc_all)
-        num_acc_mean = np.mean(num_acc_all)
-        num_acc_std = np.std(num_acc_all)
-        similarity_mean = np.mean(similarity_all)
-        similarity_std = np.std(similarity_all)
-        euclidean_dist_mean = np.mean(euclidean_dist_all)
-        euclidean_dist_std = np.std(euclidean_dist_all)
+    decoder_mode = args.decoder_mode
+    # shadow_model = args.shadow_model
+    base_mode = args.base_mode
+    # radio_list = [0.13, 0.3, 0.7, 0.9]
 
-        # 打印结果
-        print(f"Accuracy: Mean = {acc_mean}, Std = {acc_std}")
-        print(f"One-hot Accuracy: Mean = {onehot_acc_mean}, Std = {onehot_acc_std}")
-        print(f"Numeric Accuracy: Mean = {num_acc_mean}, Std = {num_acc_std}")
-        print(f"Similarity: Mean = {similarity_mean}, Std = {similarity_std}")
-        print(f"Euclidean Distance: Mean = {euclidean_dist_mean}, Std = {euclidean_dist_std}")
-
-
-    else:
-        # 设置随机种子
+    for r in data_ratio_list:
+        print("radio: ", r)
         freeze_rand(args.seed)
-        # 是否要规范化
+        Xa_test, Xb_test, y_test = test
+        Xa_test = Xa_test[:int(len(Xa_test) * r)]
+        Xb_test = Xb_test[:int(len(Xb_test) * r)]
+        y_test = y_test[:int(len(y_test) * r)]
 
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
-        rebuild(train_data=train, test_data=test, tab=tab, device=device, args=args)
+        new_train = (Xa_test, Xb_test, y_test)
+
+        # args.base_mode = base_mode +"data" + str(r)
+        args.decoder_mode = decoder_mode + "data" + str(r)
+        # args.shadow_model = shadow_model + str(r)
+
+
+        rebuild(train_data=train, test_data=new_train, tab=tab, device=device, args=args)
+
+

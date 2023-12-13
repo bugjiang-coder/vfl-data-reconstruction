@@ -43,6 +43,7 @@ def tabDataGen(tab, batch_size, device='cpu'):
 
 def train_decoder(net, train_queue, test_queue, tab, device, args):
     # 注意这个decoder 需要使用测试集进行训练
+    Xb_train = train_queue.dataset.Xb
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
@@ -111,6 +112,14 @@ def train_decoder(net, train_queue, test_queue, tab, device, args):
                 f"acc: {acc}, onehot_acc: {onehot_acc}, num_acc: {num_acc}, similarity: {similarity}, euclidean_dist: {euclidean_dist}")
 
             if acc >= bestAcc:
+                if abs(acc - bestAcc) < 0.0001:
+                    # 检查args.decoder_mode目录是否存在
+                    save_dir = os.path.dirname(args.decoder_mode)
+                    if not os.path.exists(save_dir):
+                        os.makedirs(save_dir)
+
+                    torch.save(decoder, args.decoder_mode)
+                    break
                 consecutive_decreases = 0
                 bestAcc = acc
                 # 检查args.decoder_mode目录是否存在
@@ -227,13 +236,7 @@ def rebuild(train_data, test_data, tab, device, args):
 
         record_experiment(args, acc, onehot_acc, num_acc, similarity, euclidean_dist)
 
-            # # 保存元素数据
-            # origin_data = tensor2df(originData.detach())
-            # # 判断路径是否存在
-            # origin_data.to_csv(args.save + "origin.csv", mode='a', header=False, index=False)
-            #
-            # inverse_data = tensor2df(xGen.detach())
-            # inverse_data.to_csv(args.save + "inverse.csv", mode='a', header=False, index=False)
+    return acc, onehot_acc, num_acc, similarity, euclidean_dist
 
 
 # 现在需要进行实验记录
@@ -271,6 +274,7 @@ if __name__ == '__main__':
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("TabRebuild")
+    parser.add_argument('--multiple', action='store_true', help='Whether to conduct multiple experiments')
     parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
                         help='location of the data corpus')
@@ -308,23 +312,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
 
-    freeze_rand(args.seed)
-
-    # # 这个是一个类似tensorboard的东西,可视化实验过程
-    # wandb.init(project="VFL-TabRebuild-v3", entity="yang-test",
-    #            name="VFL-{}".format(args.name),
-    #            config=args)
-
-    # 是否要规范化
-    train, test = preprocess(args.data_dir)
-
-    Xa_train, Xb_train, y_train = train
-    Xa_test, Xb_test, y_test = test
-
-    # Xa_train, Xb_train, y_train = shuffle(Xa_train, Xb_train, y_train)
-    # Xa_test, Xb_test, y_test = shuffle(Xa_test, Xb_test, y_test)
-    train = [Xa_train, Xb_train, y_train]
-    test = [Xa_test, Xb_test, y_test]
 
     # 指定rebuild的表格特征
     tab = {
@@ -337,6 +324,56 @@ if __name__ == '__main__':
         'numList': [i for i in range(23, 28)]
     }
 
-    # 训练并生成
-    # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=train, test_data=test, tab=tab, device=device, args=args)
+    train, test = preprocess(args.data_dir)
+
+    if args.multiple:
+        # 进行多次实验
+        acc_all, onehot_acc_all, num_acc_all, similarity_all, euclidean_dist_all = [], [], [], [], []
+        decoder_mode = args.decoder_mode
+        # shadow_model = args.shadow_model
+
+        for i in range(5):
+            # 设置随机种子
+            freeze_rand(args.seed + i)
+            # 是否要规范化
+            args.decoder_mode = decoder_mode + str(i)
+            # args.shadow_model = shadow_model + str(i)
+
+            # 训练并生成
+            # 白盒攻击本身并不需要训练数据
+            acc, onehot_acc, num_acc, similarity, euclidean_dist = rebuild(train_data=train, test_data=test, tab=tab,
+                                                                           device=device, args=args)
+            acc_all.append(acc)
+            onehot_acc_all.append(onehot_acc)
+            num_acc_all.append(num_acc)
+            similarity_all.append(similarity)
+            euclidean_dist_all.append(euclidean_dist)
+        # 计算均值和方差
+        acc_mean = np.mean(acc_all)
+        acc_std = np.std(acc_all)
+        onehot_acc_mean = np.mean(onehot_acc_all)
+        onehot_acc_std = np.std(onehot_acc_all)
+        num_acc_mean = np.mean(num_acc_all)
+        num_acc_std = np.std(num_acc_all)
+        similarity_mean = np.mean(similarity_all)
+        similarity_std = np.std(similarity_all)
+        euclidean_dist_mean = np.mean(euclidean_dist_all)
+        euclidean_dist_std = np.std(euclidean_dist_all)
+
+        # 打印结果
+        print(f"Accuracy: Mean = {acc_mean}, Std = {acc_std}")
+        print(f"One-hot Accuracy: Mean = {onehot_acc_mean}, Std = {onehot_acc_std}")
+        print(f"Numeric Accuracy: Mean = {num_acc_mean}, Std = {num_acc_std}")
+        print(f"Similarity: Mean = {similarity_mean}, Std = {similarity_std}")
+        print(f"Euclidean Distance: Mean = {euclidean_dist_mean}, Std = {euclidean_dist_std}")
+
+
+    else:
+        # 设置随机种子
+        freeze_rand(args.seed)
+        # 是否要规范化
+
+
+        # 训练并生成
+        # 白盒攻击本身并不需要训练数据
+        rebuild(train_data=train, test_data=test, tab=tab, device=device, args=args)

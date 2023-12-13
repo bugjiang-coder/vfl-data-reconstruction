@@ -7,6 +7,8 @@ dataPath = '/home/yangjirui/data/vfl-tab-reconstruction/dataset/credit/clients.x
 
 def to_onehot(df, col_features):
     # 对类别型特征进行one-hot编码,并返回离散特征的索引
+    if len(col_features) == 0:
+        return None, {}
     onehot_df = pd.get_dummies(df[col_features])
     onehot_features = onehot_df.columns.values
     discrete_index = {s: [i for i in range(len(onehot_features)) if s in onehot_features[i]] for s in col_features}
@@ -14,7 +16,7 @@ def to_onehot(df, col_features):
     return onehot_df, discrete_index
 
 
-def preprocess(dataPath):
+def preprocess(dataPath, A_ratio=0.5):
     print("===============processing data===============")
 
     df = pd.read_excel(dataPath, index_col=0, header=1)
@@ -40,11 +42,19 @@ def preprocess(dataPath):
     df[df_num_col] = scaler.fit_transform(df[df_num_col])
 
     # -----------------------划分训练集和测试集-------------------------
-    Xa, Xa_index = to_onehot(df, df_object_col[::2])
-    Xa = pd.concat([Xa, df[df_num_col[::2]]], axis=1).values
+    if A_ratio == 0.5:
+        Xa, Xa_index = to_onehot(df, df_object_col[::2])
+        Xa = pd.concat([Xa, df[df_num_col[::2]]], axis=1).values
 
-    Xb, Xb_index = to_onehot(df, df_object_col[1::2])
-    Xb = pd.concat([Xb, df[df_num_col[1::2]]], axis=1).values
+        Xb, Xb_index = to_onehot(df, df_object_col[1::2])
+        Xb = pd.concat([Xb, df[df_num_col[1::2]]], axis=1).values
+    else:
+        Xa, Xa_index = to_onehot(df, df_object_col[:int(A_ratio * len(df_object_col))])
+        Xa = pd.concat([Xa, df[df_num_col[:int(A_ratio * len(df_num_col))]]], axis=1).values
+
+        Xb, Xb_index = to_onehot(df, df_object_col[int(A_ratio * len(df_object_col)):])
+        Xb = pd.concat([Xb, df[df_num_col[int(A_ratio * len(df_num_col)):]]], axis=1).values
+
 
     y = target.values
     y = np.expand_dims(y, axis=1)
@@ -74,18 +84,18 @@ if __name__ == "__main__":
 
     # df = pd.read_csv(dataPath, delimiter=';')
 
-    df = pd.read_excel(dataPath, index_col=0, header=1)
-    # df = pd.read_csv(dataPath, delimiter=';')
-    # df.head()
-    df.info()
-
-    print(df.sample(10))
-    # print(df.shape)
-    # print(df.info())
-    print(df.describe())
-    # print(df.head())
-    print(df.iloc[0:10, :])
-    print(df.columns.values)
+    # df = pd.read_excel(dataPath, index_col=0, header=1)
+    # # df = pd.read_csv(dataPath, delimiter=';')
+    # # df.head()
+    # df.info()
+    #
+    # print(df.sample(10))
+    # # print(df.shape)
+    # # print(df.info())
+    # print(df.describe())
+    # # print(df.head())
+    # print(df.iloc[0:10, :])
+    # print(df.columns.values)
 
     [Xa_train, Xb_train, y_train], [Xa_test, Xb_test, y_test] = preprocess(dataPath)
     # for i in range(10):
@@ -93,3 +103,6 @@ if __name__ == "__main__":
     #
     # print(Xa_train[10:])
     # print(y_train[10:])
+    [Xa_train, Xb_train, y_train], [Xa_test, Xb_test, y_test] = preprocess(dataPath, A_ratio=0.1)
+
+    [Xa_train, Xb_train, y_train], [Xa_test, Xb_test, y_test] = preprocess(dataPath, A_ratio=0.9)

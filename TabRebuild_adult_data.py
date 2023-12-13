@@ -11,10 +11,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
 
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
-from fedml_core.model.net import active_model, passive_model, passive_decoder_model
-from fedml_core.utils.vfl_trainer import VFLTrainer
+from fedml_core.model.adultModels import TopModel, BottomModel, BottomModelDecoder
+from fedml_core.trainer.vfl_trainer import VFLTrainer
 from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, Similarity, onehot_softmax, tabRebuildAcc, \
-    onehot_bool_loss_v2, onehot_bool_loss, num_loss
+    onehot_bool_loss_v2, onehot_bool_loss, num_loss, keep_predict_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -38,6 +38,9 @@ def train_shadow_model(train_queue, device, args):
     # TODO：这里需要考虑2种情况，一种是完全重建一个client的模型（要求结构一致），
     #  一种是尽可能利用我们自己拥有的信息，仿照GRN模型，但是数据相关性的角度来看应该提升不大
 
+    Xa_train = train_queue.dataset.Xa
+    Xb_train = train_queue.dataset.Xb
+
     if os.path.isfile(args.shadow_model):
         print("=> loading decoder mode '{}'".format(args.shadow_model))
         shadow_model = torch.load(args.shadow_model, map_location=device)
@@ -46,25 +49,13 @@ def train_shadow_model(train_queue, device, args):
     # 这里现实现一个完全一致的
     print("################################ load Federated Models ############################")
     # 加载VFL框架
-    Xa_shape = train_queue.dataset.Xa.shape
-    Xb_shape = train_queue.dataset.Xb.shape
-    active_party = active_model(input_dim=Xa_shape[1], intern_dim=20, num_classes=1, k=args.k)
+    top_model = TopModel(input_dim=200, output_dim=1)
+    bottom_model_list = [BottomModel(input_dim=Xa_train.shape[1], output_dim=100),
+                         BottomModel(input_dim=Xb_train.shape[1], output_dim=100)]
 
-    passive_model_list = [passive_model(input_dim=Xb_shape[1], intern_dim=20, output_dim=20) for _ in
-                          range(args.k - 1)]
-    active_party.to(device)
-    for model in passive_model_list:
-        model.to(device)
+    vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
-    active_optimizer = torch.optim.SGD(active_party.parameters(), args.lr, momentum=args.momentum,
-                                       weight_decay=args.weight_decay)
 
-    passive_optimizer_list = [
-        torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
-        in passive_model_list
-    ]
-
-    vfltrainer = VFLTrainer(active_party, passive_model_list, active_optimizer, passive_optimizer_list, args)
 
     checkpoint = torch.load(args.base_mode, map_location=device)
     args.start_epoch = checkpoint['epoch']
@@ -73,21 +64,31 @@ def train_shadow_model(train_queue, device, args):
           .format(args.base_mode, checkpoint['epoch'], checkpoint['auc']))
 
     # 重新初始化需要重建的网络
-    vfltrainer.passive_model_list[0].apply(weights_init)
+    vfltrainer.bottom_model_list[1].apply(weights_init)
 
-    # decoder = train_decoder(net, device, args)
+    model_list = bottom_model_list + [top_model]
+
+    optimizer_list = [
+        torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
+        in model_list
+    ]
+
+    optimizer_list[0] = None
+    optimizer_list[2] = None
 
     criterion = nn.BCEWithLogitsLoss(reduction='sum').to(device)
+    bottom_criterion = keep_predict_loss
 
     for epoch in range(0, 120):
-        train_loss = vfltrainer.train_passive_mode(train_queue, criterion, device, args)
-        acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(train_queue, criterion, device)
+        train_loss = vfltrainer.train_single_model(train_queue, criterion, bottom_criterion, optimizer_list, 1,False, device, args)
+        # train_loss = vfltrainer.train_passive_mode(train_queue, criterion, device, args)
+        test_loss, acc, auc, precision, recall, f1 = vfltrainer.test(train_queue, criterion, device)
 
         print(
             "---shadow_moder--- epoch: {0}, train_loss: {1},test_loss: {2}, test_acc: {3}, test_precison: {4}, test_recall: {5}, test_f1: {6}, test_auc: {7}"
-            .format(epoch, train_loss[0], test_loss, acc, precision, recall, f1, auc))
+            .format(epoch, train_loss, test_loss, acc, precision, recall, f1, auc))
 
-    shadow_model = vfltrainer.passive_model_list[0]
+    shadow_model = vfltrainer.bottom_model_list[1]
 
     # 检查args.decoder_mode目录是否存在
     save_dir = os.path.dirname(args.shadow_model)
@@ -100,6 +101,7 @@ def train_shadow_model(train_queue, device, args):
     return shadow_model
 
 
+
 def train_decoder(net, train_queue, device, args):
     # 注意这个decoder 需要使用测试集进行训练
 
@@ -108,7 +110,10 @@ def train_decoder(net, train_queue, device, args):
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
-    decoder = passive_decoder_model(input_dim=20, intern_dim=20, output_dim=Xb_shape[1]).to(device)
+    net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
+    # print(net_output.shape)
+    decoder = BottomModelDecoder(input_dim=net_output.shape[1], output_dim=Xb_shape[1]).to(device)
+
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -184,23 +189,12 @@ def rebuild(train_data, test_data, tab, device, args):
     train_queue = iter(train_queue)
 
     # 加载VFL框架
-    active_party = active_model(input_dim=Xa_train.shape[1], intern_dim=20, num_classes=1, k=args.k)
+    top_model = TopModel(input_dim=200, output_dim=1)
+    bottom_model_list = [BottomModel(input_dim=Xa_train.shape[1], output_dim=100),
+                         BottomModel(input_dim=Xb_train.shape[1], output_dim=100)]
 
-    passive_model_list = [passive_model(input_dim=Xb_train.shape[1], intern_dim=20, output_dim=20) for _ in
-                          range(args.k - 1)]
-    active_party.to(device)
-    for model in passive_model_list:
-        model.to(device)
+    vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
-    active_optimizer = torch.optim.SGD(active_party.parameters(), args.lr, momentum=args.momentum,
-                                       weight_decay=args.weight_decay)
-
-    passive_optimizer_list = [
-        torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
-        in passive_model_list
-    ]
-
-    vfltrainer = VFLTrainer(active_party, passive_model_list, active_optimizer, passive_optimizer_list, args)
 
     checkpoint = torch.load(args.base_mode, map_location=device)
     args.start_epoch = checkpoint['epoch']
@@ -208,13 +202,13 @@ def rebuild(train_data, test_data, tab, device, args):
     print("=> loaded model '{}' (epoch: {} auc: {})"
           .format(args.base_mode, checkpoint['epoch'], checkpoint['auc']))
 
-    shadow_net = train_shadow_model(test_queue, device, args)  # 需要恢复数据的网络
+    net = train_shadow_model(test_queue, device, args)  # 需要恢复数据的网络
 
-    decoder = train_decoder(shadow_net, test_queue, device, args)
+    decoder = train_decoder(net, test_queue, device, args)
 
     print("################################ recovery data ############################")
 
-    net = vfltrainer.passive_model_list[0].to(device)  # 需要恢复数据的网络
+    # net = vfltrainer.passive_model_list[0].to(device)  # 需要恢复数据的网络
 
     acc_list = []
     onehot_acc_list = []
@@ -358,12 +352,15 @@ if __name__ == '__main__':
     if args.multiple:
         # 进行多次实验
         acc_all, onehot_acc_all, num_acc_all, similarity_all, euclidean_dist_all = [], [], [], [], []
+        decoder_mode = args.decoder_mode
+        shadow_model = args.shadow_model
+
         for i in range(5):
             # 设置随机种子
             freeze_rand(args.seed + i)
             # 是否要规范化
-            args.decoder_mode = args.decoder_mode + str(i)
-            args.shadow_model = args.shadow_model + str(i)
+            args.decoder_mode = decoder_mode + str(i)
+            args.shadow_model = shadow_model + str(i)
 
             # 训练并生成
             # 白盒攻击本身并不需要训练数据

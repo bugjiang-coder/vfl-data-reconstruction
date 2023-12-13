@@ -117,6 +117,10 @@ class bank_dataset(Dataset):
 
         return [np.float32(Xa), np.float32(Xb)], np.float32(y)
 
+    def __len__(self):
+        return len(self.Xa)
+
+
 class credit_dataset(Dataset):
     def __init__(self, data):
         # data = data

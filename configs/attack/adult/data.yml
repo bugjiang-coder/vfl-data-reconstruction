@@ -7,12 +7,12 @@ data_dir: /data/yangjirui/vfl-tab-reconstruction/dataset/adult/adult.data
 #resume: ''
 #resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
 #save: ''
-save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v3layer/
-base_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v5/best.pth.tar
-decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v5/attack-model/data_decoder120.pth.tar
+save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v6/
+base_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/best.pth.tar
+decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/attack-model/data_decoder120.pth.tar
 #origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
 #rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
-shadow_model: /data/yangjirui/vfl-tab-reconstruction/model/adult/v5/attack-model/data_shadow_model120.pth.tar
+shadow_model: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/attack-model/data_shadow_model120.pth.tar
 
 # model
 report_freq: 10
@@ -20,7 +20,7 @@ workers: 0
 
 
 # Hyperparameters
-lr: 0.1
+lr: 0.001
 momentum: 0.9
 weight_decay: 3e-5
 gamma: 0.97

@@ -10,6 +10,8 @@ from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
+sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
+
 
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
 from fedml_core.model.adultModels import TopModel, BottomModel, BottomModelDecoder
@@ -303,75 +305,60 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/adult/model+data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/attack/adult/model+data_radio.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
 
-
     # 指定rebuild的表格特征
-    tab = {
-        'boolList': [i for i in range(0, 76)],
+    tab_list = [{
         'onehot': {
             'education': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            'occupation': [16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
-            'race': [30, 31, 32, 33, 34],
-            'native-country': [
-                35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60,
-                61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75]
+            'marital-status': [16, 17, 18, 19, 20, 21, 22],
+            'occupation': [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36],
+            'relationship': [37, 38, 39, 40, 41, 42], 'race': [43, 44, 45, 46, 47], 'sex': [48, 49],
+            'native-country': [50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+                               70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89,
+                               90]
         },
-        'numList': [76]
+        'numList': [91, 92, 93]
+    }, {
+        'onehot': {'marital-status': [0, 1, 2, 3, 4, 5, 6],
+                   'occupation': [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+                   'relationship': [21, 22, 23, 24, 25, 26], 'race': [27, 28, 29, 30, 31], 'sex': [32, 33],
+                   'native-country': [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53,
+                                      54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73,
+                                      74]},
+        'numList': [75, 76, 77]
+    }, {
+        'onehot': {'race': [0, 1, 2, 3, 4], 'sex': [5, 6],
+                   'native-country': [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+                                      27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+                                      47]},
+        'numList': [48]
+    }, {
+        'onehot': {
+            'native-country': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+                               25,
+                               26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]},
+        'numList': [41]
     }
+    ]
 
-    train, test = preprocess(args.data_dir)
+    decoder_mode = args.decoder_mode
+    # shadow_model = args.shadow_model
+    base_mode = args.base_mode
+    radio_list = [0.13, 0.3, 0.7, 0.9]
 
-    if args.multiple:
-        # 进行多次实验
-        acc_all, onehot_acc_all, num_acc_all, similarity_all, euclidean_dist_all = [], [], [], [], []
-        decoder_mode = args.decoder_mode
-        # shadow_model = args.shadow_model
-
-        for i in range(5):
-            # 设置随机种子
-            freeze_rand(args.seed + i)
-            # 是否要规范化
-            args.decoder_mode = decoder_mode + str(i)
-            # args.shadow_model = shadow_model + str(i)
-
-            # 训练并生成
-            # 白盒攻击本身并不需要训练数据
-            acc, onehot_acc, num_acc, similarity, euclidean_dist = rebuild(train_data=train, test_data=test, tab=tab,
-                                                                           device=device, args=args)
-            acc_all.append(acc)
-            onehot_acc_all.append(onehot_acc)
-            num_acc_all.append(num_acc)
-            similarity_all.append(similarity)
-            euclidean_dist_all.append(euclidean_dist)
-        # 计算均值和方差
-        acc_mean = np.mean(acc_all)
-        acc_std = np.std(acc_all)
-        onehot_acc_mean = np.mean(onehot_acc_all)
-        onehot_acc_std = np.std(onehot_acc_all)
-        num_acc_mean = np.mean(num_acc_all)
-        num_acc_std = np.std(num_acc_all)
-        similarity_mean = np.mean(similarity_all)
-        similarity_std = np.std(similarity_all)
-        euclidean_dist_mean = np.mean(euclidean_dist_all)
-        euclidean_dist_std = np.std(euclidean_dist_all)
-
-        # 打印结果
-        print(f"Accuracy: Mean = {acc_mean}, Std = {acc_std}")
-        print(f"One-hot Accuracy: Mean = {onehot_acc_mean}, Std = {onehot_acc_std}")
-        print(f"Numeric Accuracy: Mean = {num_acc_mean}, Std = {num_acc_std}")
-        print(f"Similarity: Mean = {similarity_mean}, Std = {similarity_std}")
-        print(f"Euclidean Distance: Mean = {euclidean_dist_mean}, Std = {euclidean_dist_std}")
-
-
-    else:
-        # 设置随机种子
+    for r in radio_list:
+        print("radio: ", r)
         freeze_rand(args.seed)
-        # 是否要规范化
+        train, test = preprocess(args.data_dir, A_ratio=r)
 
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
+        args.base_mode = base_mode + str(r)
+        args.decoder_mode = decoder_mode + str(r)
+        # args.shadow_model = shadow_model + str(r)
+
+        tab = tab_list[radio_list.index(r)]
+
         rebuild(train_data=train, test_data=test, tab=tab, device=device, args=args)

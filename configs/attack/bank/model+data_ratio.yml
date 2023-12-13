@@ -3,15 +3,15 @@ name: decoder-rebuild-2layer-all-data
 
 
 # dir
-data_dir: /data/yangjirui/vfl-tab-reconstruction/dataset/adult/adult.data
+data_dir: /home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv
 #resume: ''
 #resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
 #save: ''
-save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v6/
-base_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/best.pth.tar
+save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/bank/ratio/
+base_mode: /data/yangjirui/vfl-tab-reconstruction/model/bank/ratio/best.pth.tar
 #decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/attack-model/decoder_model_360epoch-loss.pth.tar
 #decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/attack-model/decoder_model_360epoch_noloss.pth.tar
-decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/attack-model/model+data360-t+.pth.tar
+decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/bank/ratio/attack-model/model+data+.pth.tar
 #origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
 #rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
 
