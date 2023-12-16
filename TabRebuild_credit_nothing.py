@@ -122,7 +122,7 @@ def rebuild(train_data, test_data, tab, device, args):
     # 加载原始训练数据，用于对比恢复效果
     Xa_train, Xb_train, y_train = train_data
     train_dataset = adult_dataset(train_data)
-    train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
+    train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False,
                                               num_workers=args.workers, drop_last=False)
     test_dataset = adult_dataset(test_data)
     test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
@@ -339,7 +339,8 @@ if __name__ == '__main__':
         # 设置随机种子
         freeze_rand(args.seed)
         # 是否要规范化
-
+        # 测试已知数据大小
+        # args.batch_size = 8
 
         # 训练并生成
         # 白盒攻击本身并不需要训练数据

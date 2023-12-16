@@ -123,7 +123,7 @@ def rebuild(train_data, test_data, tab, device, args):
     # 加载原始训练数据，用于对比恢复效果
     Xa_train, Xb_train, y_train = train_data
     train_dataset = adult_dataset(train_data)
-    train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
+    train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False,
                                               num_workers=args.workers, drop_last=False)
     test_dataset = adult_dataset(test_data)
     test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
@@ -172,6 +172,7 @@ def rebuild(train_data, test_data, tab, device, args):
 
 
         xGen = onehot_softmax(xGen_before, onehot_index)
+        # xGen = torch.rand_like(xGen)
 
         acc, onehot_acc, num_acc = tabRebuildAcc(originData, xGen, tab)
         similarity = Similarity(xGen, originData)
@@ -314,7 +315,7 @@ if __name__ == '__main__':
         train, test = preprocess(args.data_dir, A_ratio=r)
 
         args.base_mode = base_mode + str(r)
-        args.decoder_mode = decoder_mode + str(r)
+        args.decoder_mode = decoder_mode + str(r) + "v2"
         # args.shadow_model = shadow_model + str(r)
 
         tab = tab_list[radio_list.index(r)]
