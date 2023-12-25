@@ -190,7 +190,36 @@ def tensor2df(tensorDate):
 
     return dfData
 
+def gaussian_noise_masking(g, ratio):
+    device = g.device
+    g_norm = torch.norm(g, p=2, dim=1)
+    max_norm = torch.max(g_norm)
+    gaussian_std = ratio * max_norm/torch.sqrt(torch.tensor(g.shape[1], dtype=torch.float).to(device))
 
+    gaussian_noise = torch.normal(mean=0.0, std=gaussian_std.item(), size=g.shape).to(device)
+    # res = [g+gaussian_noise]
+    return g+gaussian_noise
+
+def gaussian_noise_masking_v2(g, ratio):
+    device = g.device
+    std = ratio
+    noise = torch.randn(g.size()).to(device) * std
+    # 将噪声添加到原始张量
+    return g + noise
+
+def smashed_data_masking(g):
+    # add scalar noise to align with the maximum norm in the batch
+    # (expectation norm alignment)
+    # yjr:这里的输入不明确但可以确定的是g[0][0]的shape是[batch_size, dim]
+    device = g.device
+    g_norm = torch.norm(g, p=2, dim=1)
+    max_norm = torch.max(g_norm)
+    stds = torch.sqrt(torch.maximum(max_norm ** 2 /
+                              (g_norm ** 2 + 1e-32) - 1.0, torch.tensor(0.0)))
+    standard_gaussian_noise = torch.normal(mean=0.0, std=1.0, size=(g_norm.shape[0], 1)).to(device)
+    gaussian_noise = standard_gaussian_noise * stds.view(-1, 1)
+    # res = [g[0][0] * (1 + gaussian_noise)]
+    return g * (1 + gaussian_noise)
 def tabRebuildAcc(originData, rebuildData, tab, sigma=0.2):
     originData = originData.detach().clone()
     rebuildData = rebuildData.detach().clone()

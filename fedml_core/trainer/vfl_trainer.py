@@ -6,7 +6,7 @@ import numpy as np
 import wandb
 import torch.nn.functional as F
 # from fedml_core.utils.utils import AverageMeter, gradient_masking, gradient_gaussian_noise_masking, marvell_g, backdoor_truepostive_rate, apply_noise_patch, gradient_compression, laplacian_noise_masking
-from fedml_core.utils.utils import AverageMeter
+from fedml_core.utils.utils import AverageMeter, gaussian_noise_masking, smashed_data_masking
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import normalize
 
@@ -128,6 +128,19 @@ class VFLTrainer(ModelTrainer):
             # bottom model A
             output_tensor_bottom_model_a = model_list[0](trn_X[0])
 
+            # output_tensor_bottom_model_b = output_tensor_bottom_model_b.to(device)
+
+            # 对smashed data扰动
+            if args.max_norm:
+                output_tensor_bottom_model_b = smashed_data_masking(output_tensor_bottom_model_b)
+            # 增加iso gaussian noise
+            if args.iso:
+                output_tensor_bottom_model_b = gaussian_noise_masking(output_tensor_bottom_model_b,
+                                                                             ratio=args.iso_ratio)
+            # test
+            # output_tensor_bottom_model_a = torch.zeros_like(output_tensor_bottom_model_a)
+            # output_tensor_bottom_model_b = torch.zeros_like(output_tensor_bottom_model_b)
+
             input_tensor_top_model_a = output_tensor_bottom_model_a.detach().clone()
             input_tensor_top_model_b = output_tensor_bottom_model_b.detach().clone()
             input_tensor_top_model_a.requires_grad_(True)
@@ -146,6 +159,11 @@ class VFLTrainer(ModelTrainer):
             # read grad of: input of top model(also output of bottom models), which will be used as bottom model's target
             grad_output_bottom_model_a = input_tensor_top_model_a.grad
             grad_output_bottom_model_b = input_tensor_top_model_b.grad
+
+            # 差分隐私防御方法
+            if args.DP:
+                grad_output_bottom_model_b = gaussian_noise_masking(grad_output_bottom_model_b,
+                                                                             ratio=args.DP_ratio)
 
             # Theoretical reference:https://github.com/FuChong-cyber/label-inference-attacks
             # -- bottom model b backward/update--
@@ -824,7 +842,7 @@ class VFLTrainer(ModelTrainer):
         m = nn.Sigmoid()
 
         Loss = AverageMeter()
-        AUC = AverageMeter()
+        # AUC = AverageMeter()
         ACC = AverageMeter()
         Precision = AverageMeter()
         Recall = AverageMeter()
@@ -840,6 +858,9 @@ class VFLTrainer(ModelTrainer):
         https://towardsdatascience.com/cross-entropy-for-classification-d98e7f974451
         https://github.com/google-research/federated/blob/49a43456aa5eaee3e1749855eed89c0087983541/optimization/stackoverflow_lr/federated_stackoverflow_lr.py#L131
         '''
+        # all_target = np.array([])
+        target_list = []
+        pred_list = []
         with torch.no_grad():
             for batch_idx, (trn_X, target) in enumerate(test_data):
                 trn_X = [x.float().to(device) for x in trn_X]
@@ -862,11 +883,14 @@ class VFLTrainer(ModelTrainer):
                 acc = accuracy_score(target.cpu().numpy(), y_hat_lbls)
                 #auc = roc_auc_score(target.cpu().numpy(), pred.cpu().numpy())
 
-                try:
-                    auc = roc_auc_score(target.cpu().numpy(), pred.cpu().numpy())
-                except  ValueError:
-                    auc = 0
-                    pass
+                target_list.append(target.cpu().numpy())
+                pred_list.append(pred.cpu().numpy())
+                # try:
+                #
+                #     auc = roc_auc_score(target.cpu().numpy(), pred.cpu().numpy())
+                # except  ValueError:
+                #     auc = 0
+                #     pass
 
                 metrics = precision_recall_fscore_support(target.cpu().numpy(), y_hat_lbls, average="binary",
                                                           warn_for=tuple())
@@ -887,7 +911,7 @@ class VFLTrainer(ModelTrainer):
                 metrics['test_total'] += target.size(0)
                 '''
                 ACC.update(acc)
-                AUC.update(auc)
+                # AUC.update(auc)
                 Loss.update(loss)
                 Precision.update(metrics[0])
                 Recall.update(metrics[1])
@@ -896,8 +920,13 @@ class VFLTrainer(ModelTrainer):
                 # ASR_1.update(poisoned_fp_rate)
                 # ARR_0.update(poisoned_tn_rate)
                 # ARR_1.update(poisoned_tp_rate)
+        # print(len(target_list))
 
-        return Loss.avg, ACC.avg, AUC.avg, Precision.avg, Recall.avg, F1.avg
+        traget_list = np.concatenate(target_list, axis=0)
+        pred_list = np.concatenate(pred_list, axis=0)
+
+        auc =  roc_auc_score(traget_list, pred_list)
+        return Loss.avg, ACC.avg, auc, Precision.avg, Recall.avg, F1.avg
 
     def train_narcissus(self, train_data, criterion, bottom_criterion, optimizer_list, device, args, delta, poisoned_indices):
         # poisoned_indices: 是一个要毒害的index的list

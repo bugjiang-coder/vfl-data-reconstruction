@@ -140,3 +140,27 @@ class BottomModelDecoder(nn.Module):
 
     def forward(self, input):
         return self.local_model(input)
+
+
+class BottomModelDecoder_layer1(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(BottomModelDecoder_layer1, self).__init__()
+        self.local_model = nn.Sequential(
+            nn.Linear(input_dim, output_dim)
+        )
+
+    def forward(self, input):
+        return self.local_model(input)
+
+class BottomModelDecoder_layer2(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(BottomModelDecoder_layer2, self).__init__()
+        self.local_model = nn.Sequential(
+            nn.Linear(input_dim, 300),
+            nn.LeakyReLU(),
+            nn.Linear(300, output_dim),
+            # nn.Linear(input_dim, output_dim)
+        )
+
+    def forward(self, input):
+        return self.local_model(input)
