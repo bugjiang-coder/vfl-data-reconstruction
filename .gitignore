@@ -1,0 +1,7 @@
+data/
+.idea/
+*.xml
+*.iml
+dataset/
+model/
+*.pyc

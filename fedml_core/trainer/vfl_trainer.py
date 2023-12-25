@@ -14,6 +14,17 @@ from sklearn.preprocessing import normalize
 from .model_trainer import ModelTrainer
 
 def update_model_one_batch(optimizer, model, output, batch_target, loss_func, args):
+    # print(output)
+    # print(batch_target)
+    # print(loss_func)
+    # CrossEntropyLoss()
+    # 如果是CrossEntropyLoss
+    # 如果loss_func是CrossEntropyLoss的一个实例
+    if isinstance(loss_func, nn.CrossEntropyLoss):
+        # 为了避免错误，确保目标是长整型
+        # print('CrossEntropyLoss')
+        batch_target = batch_target.long()
+        # loss = loss_func(output, batch_target)
     loss = loss_func(output, batch_target)
     optimizer.zero_grad()
     loss.backward()
@@ -706,8 +717,8 @@ class VFLTrainer(ModelTrainer):
         return asr_top1_acc, asr_top5_acc
 
 
-    def test_mul(self, test_data, criterion, device, args):
-        model_list = self.model
+    def test_mul(self, test_data, criterion, device):
+        model_list = self.bottom_model_list + [self.top_model]
 
         model_list = [model.to(device) for model in model_list]
 
@@ -719,41 +730,47 @@ class VFLTrainer(ModelTrainer):
         correct = 0
 
         with torch.no_grad():
-            for batch_idx, (trn_X, trn_y, indices) in enumerate(test_data):
+            for batch_idx, (trn_X, trn_y) in enumerate(test_data):
 
-                if args.dataset in ['CIFAR10', 'CIFAR100', 'CINIC10L']:
-                    trn_X = trn_X.float().to(device)
-                    Xa, Xb = split_data(trn_X, args)
-                    target = trn_y.long().to(device)
-                else:
-                    #trn_X = [x.float().to(device) for x in trn_X]
-                    Xa = trn_X[0].float().to(device)
-                    Xb = trn_X[1].float().to(device)
-                    target = trn_y.long().to(device)
+                # if args.dataset in ['CIFAR10', 'CIFAR100', 'CINIC10L']:
+                #     trn_X = trn_X.float().to(device)
+                #     Xa, Xb = split_data(trn_X, args)
+                #     target = trn_y.long().to(device)
+                # else:
+                #     #trn_X = [x.float().to(device) for x in trn_X]
+                #     Xa = trn_X[0].float().to(device)
+                #     Xb = trn_X[1].float().to(device)
+                #     target = trn_y.long().to(device)
+                trn_X = [x.float().to(device) for x in trn_X]
+                # if isinstance(criterion, nn.CrossEntropyLoss):
+                    # 为了避免错误，确保目标是长整型
+                trn_y = trn_y.long().to(device)
 
 
 
                 # bottom model B
-                output_tensor_bottom_model_b = model_list[1](Xb)
+                output_tensor_bottom_model_b = model_list[1](trn_X[1])
                 # bottom model A
-                output_tensor_bottom_model_a = model_list[0](Xa)
+                output_tensor_bottom_model_a = model_list[0](trn_X[0])
 
                 # top model
                 output = model_list[2](output_tensor_bottom_model_a, output_tensor_bottom_model_b)
 
 
-                loss = criterion(output, target)
+                    # 如果loss_func是CrossEntropyLoss的一个实例
+
+                loss = criterion(output, trn_y)
                 test_loss += loss.item()  # sum up batch loss
 
                 probs = F.softmax(output, dim=1)
                 # Top-1 accuracy
-                total += target.size(0)
+                total += trn_y.size(0)
                 _, pred = probs.topk(1, 1, True, True)
-                correct += torch.eq(pred, target.view(-1, 1)).sum().float().item()
+                correct += torch.eq(pred, trn_y.view(-1, 1)).sum().float().item()
 
                 # Top-5 accuracy
                 _, top5_preds = probs.topk(5, 1, True, True)
-                top5_correct += torch.eq(top5_preds, target.view(-1, 1)).sum().float().item()
+                top5_correct += torch.eq(top5_preds, trn_y.view(-1, 1)).sum().float().item()
 
         test_loss = test_loss / total
         top1_acc = 100. * correct / total
@@ -873,6 +890,10 @@ class VFLTrainer(ModelTrainer):
 
                 # top model
                 pred = m(model_list[2](output_tensor_bottom_model_a, output_tensor_bottom_model_b))
+
+                if isinstance(criterion, nn.CrossEntropyLoss):
+                    # 为了避免错误，确保目标是长整型
+                    target = target.long()
 
                 loss = criterion(pred, target)
 

@@ -1,0 +1,24 @@
+# project-info
+name: cifar10-base
+
+
+# dir
+data_dir: /data/yangjirui/vfl/vfl-tab-reconstruction/dataset/cifar10/
+#resume: ''
+resume: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v1/best.pth.tar
+# 从V3开始，正式进入论文的实验阶段
+save: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v1/
+
+# model
+report_freq: 10
+workers: 8
+
+
+# Hyperparameters
+lr: 0.001
+momentum: 0.9
+weight_decay: 3e-5
+gamma: 0.97
+epochs: 120
+batch_size: 64
+
