@@ -1,0 +1,43 @@
+# project-info
+name: model+data
+
+
+# dir
+data_dir: /data/yangjirui/vfl/vfl-tab-reconstruction/dataset/cifar10/
+#resume: ''
+# resume: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/best.pth.tar
+# 从V3开始，正式进入论文的实验阶段
+save: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/
+base_mode: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/best.pth.tar
+#decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/attack-model/decoder_model_360epoch-loss.pth.tar
+#decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/attack-model/decoder_model_360epoch_noloss.pth.tar
+decoder_mode: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/attack-model/model+data+.pth.tar
+#origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
+#rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
+
+# model
+report_freq: 10
+workers: 0
+
+
+# Hyperparameters
+lr: 0.001
+momentum: 0.9
+weight_decay: 3e-5
+gamma: 0.97
+epochs: 120
+batch_size: 64
+
+# 重建超参数
+NIters: 1000
+Ndata: 10
+bloss: 0
+bloss2: 0
+bloss2_v2: 0
+numloss: 0
+
+iloss: 0
+nloss: 0
+norloss: 0
+
+

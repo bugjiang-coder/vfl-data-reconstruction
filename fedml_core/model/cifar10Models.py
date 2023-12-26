@@ -101,39 +101,134 @@ def resnet20(kernel_size=(3, 3), num_classes=10):
 
 
 
+# class BottomModelForCifar10(nn.Module):
+#     def __init__(self):
+#         super(BottomModelForCifar10, self).__init__()
+#         self.resnet20 = resnet20(num_classes=10)
+
+#     def forward(self, x):
+#         x = self.resnet20(x)
+#         return x
+
 class BottomModelForCifar10(nn.Module):
     def __init__(self):
         super(BottomModelForCifar10, self).__init__()
-        self.resnet20 = resnet20(num_classes=10)
+        self.conv11 = nn.Conv2d(3, 64, kernel_size=3, padding=1)
+        self.conv12 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+        
+        # Define the pooling layer
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
-        x = self.resnet20(x)
+        # Apply the first convolutional layer and ReLU activation function
+        x = F.relu(self.conv11(x))
+        split1 = x  # Split point after 1st convolutional layer
+
+        # Apply the second convolutional layer
+        x = self.conv12(x)
+        x = self.pool(F.relu(x))
         return x
 
+
+class CIFAR10CNNDecoder(nn.Module):
+    def __init__(self):
+        super(CIFAR10CNNDecoder, self).__init__()
+
+        self.layerDict = collections.OrderedDict()
+
+        self.deconv11 = nn.ConvTranspose2d(
+            in_channels = 64,
+            out_channels = 64,
+            kernel_size = 3,
+            stride = 2,
+            padding = 1,
+            output_padding = 1
+        )
+        self.layerDict['deconv11'] = self.deconv11
+
+        self.ReLU11 = nn.ReLU()
+        self.layerDict['ReLU11'] = self.ReLU11
+
+        self.deconv21 = nn.ConvTranspose2d(
+            in_channels = 64,
+            out_channels = 3,
+            kernel_size = 3,
+            padding = 1
+        )
+
+        self.layerDict['deconv21'] = self.deconv21
+
+    def forward(self, x):
+        for layer in self.layerDict:
+            x = self.layerDict[layer](x)
+        return x
+
+# class TopModelForCifar10(nn.Module):
+#     def __init__(self):
+#         super(TopModelForCifar10, self).__init__()
+#         self.fc1top = nn.Linear(20, 20)
+#         self.fc2top = nn.Linear(20, 10)
+#         self.fc3top = nn.Linear(10, 10)
+#         self.fc4top = nn.Linear(10, 10)
+#         self.bn0top = nn.BatchNorm1d(20)
+#         self.bn1top = nn.BatchNorm1d(20)
+#         self.bn2top = nn.BatchNorm1d(10)
+#         self.bn3top = nn.BatchNorm1d(10)
+
+#         self.apply(weights_init)
+
+#     def forward(self, input_tensor_top_model_a, input_tensor_top_model_b):
+#         output_bottom_models = torch.cat((input_tensor_top_model_a, input_tensor_top_model_b), dim=1)
+#         x = output_bottom_models
+#         x = self.fc1top(F.relu(self.bn0top(x)))
+#         x = self.fc2top(F.relu(self.bn1top(x)))
+#         x = self.fc3top(F.relu(self.bn2top(x)))
+#         x = self.fc4top(F.relu(self.bn3top(x)))
+#         return F.log_softmax(x, dim=1)
 
 class TopModelForCifar10(nn.Module):
     def __init__(self):
         super(TopModelForCifar10, self).__init__()
-        self.fc1top = nn.Linear(20, 20)
-        self.fc2top = nn.Linear(20, 10)
-        self.fc3top = nn.Linear(10, 10)
-        self.fc4top = nn.Linear(10, 10)
-        self.bn0top = nn.BatchNorm1d(20)
-        self.bn1top = nn.BatchNorm1d(20)
-        self.bn2top = nn.BatchNorm1d(10)
-        self.bn3top = nn.BatchNorm1d(10)
+        self.conv21 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.conv22 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
+        self.conv31 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.conv32 = nn.Conv2d(256, 256, kernel_size=3, padding=1)
+
+        # Define the 2 fully connected layers
+        # The input features to the first fully connected layer will change
+        # because the width of the image is halved
+        self.fc1 = nn.Linear(256 * 4 * 4, 1024)  # Adjusted for halved image width
+        self.fc2 = nn.Linear(1024, 10)
+
+        # Define the pooling layer
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+
 
         self.apply(weights_init)
 
     def forward(self, input_tensor_top_model_a, input_tensor_top_model_b):
-        output_bottom_models = torch.cat((input_tensor_top_model_a, input_tensor_top_model_b), dim=1)
+        # print(input_tensor_top_model_a.shape) torch.Size([64, 64, 16, 8])
+        # print(input_tensor_top_model_b.shape)
+        # sys.exit(0)
+        output_bottom_models = torch.cat((input_tensor_top_model_a, input_tensor_top_model_b), dim=3)
+        # print(output_bottom_models.shape) torch.Size([64, 64, 16, 16])
+        # sys.exit(0)
         x = output_bottom_models
-        x = self.fc1top(F.relu(self.bn0top(x)))
-        x = self.fc2top(F.relu(self.bn1top(x)))
-        x = self.fc3top(F.relu(self.bn2top(x)))
-        x = self.fc4top(F.relu(self.bn3top(x)))
-        return F.log_softmax(x, dim=1)
+        x = F.relu(self.conv21(x))
+        x = self.conv22(x)
+        x = self.pool(F.relu(x))
 
+        # Apply fifth and sixth convolutional layers
+        x = F.relu(self.conv31(x))
+        x = self.conv32(x)
+        x = self.pool(F.relu(x))
+
+        # Flatten the output for the fully connected layer
+        # The flattening process needs to take into account the halved width
+        x = x.view(-1, 256 * 4 * 4)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
 
 class BottomModel(nn.Module):
     def __init__(self, input_dim, output_dim=100):

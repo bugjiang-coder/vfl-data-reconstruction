@@ -128,7 +128,6 @@ class VFLTrainer(ModelTrainer):
         for step, (trn_X, trn_y) in enumerate(train_data):
 
             trn_X = [x.float().to(device) for x in trn_X]
-            #target = torch.argmax(trn_y,dim=1).long().to(device)
             target = trn_y.float().to(device)
 
             #input_tensor_top_model_a = torch.tensor([], requires_grad=True)
