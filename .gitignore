@@ -5,3 +5,4 @@ data/
 dataset/
 model/
 *.pyc
+image/

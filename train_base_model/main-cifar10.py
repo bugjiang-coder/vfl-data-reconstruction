@@ -14,7 +14,7 @@ sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 from fedml_core.preprocess.cifar10.preprocess_cifar10 import IndexedCIFAR10
 from fedml_core.model.cifar10Models import BottomModelForCifar10, TopModelForCifar10
 from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, keep_predict_loss
+from fedml_core.utils.utils import over_write_args_from_file, keep_predict_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch

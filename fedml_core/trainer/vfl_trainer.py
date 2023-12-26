@@ -241,6 +241,10 @@ class VFLTrainer(ModelTrainer):
                                                         loss_func=criterion,
                                                         args=args)
             else:
+                if isinstance(criterion, nn.CrossEntropyLoss):
+                    # 为了避免错误，确保目标是长整型
+                    # print('CrossEntropyLoss')
+                    target = target.long()
                 loss = criterion(output, target)
                 loss.backward()
 

@@ -16,7 +16,7 @@ sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 from fedml_core.preprocess.cifar10.preprocess_cifar10 import IndexedCIFAR10
 from fedml_core.model.cifar10Models import BottomModelForCifar10, TopModelForCifar10, CIFAR10CNNDecoder
 from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import over_write_args_from_file, Similarity, save_tensor_as_image, test_rebuild_psnr, PSNR
+from fedml_core.utils.utils import over_write_args_from_file, Similarity, PSNR, test_rebuild_psnr, keep_predict_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -24,12 +24,85 @@ import torch.nn as nn
 import argparse
 import wandb
 import shutil
+from tqdm import tqdm
+
+import torch.nn.init as init
+
+
+def weights_init(m):
+    if isinstance(m, torch.nn.Conv2d) or isinstance(m, torch.nn.Linear):
+        init.xavier_uniform_(m.weight)
+        if m.bias is not None:
+            init.constant_(m.bias, 0)
+
+
+def train_shadow_model(train_queue, device, args):
+    # TODO：这里需要考虑2种情况，一种是完全重建一个client的模型（要求结构一致），
+    #  一种是尽可能利用我们自己拥有的信息，仿照GRN模型，但是数据相关性的角度来看应该提升不大
+
+
+    if os.path.isfile(args.shadow_model):
+        print("=> loading decoder mode '{}'".format(args.shadow_model))
+        shadow_model = torch.load(args.shadow_model, map_location=device)
+        return shadow_model
+
+    # 这里现实现一个完全一致的
+    print("################################ load Federated Models ############################")
+    # 加载VFL框架
+    top_model = TopModelForCifar10()
+    bottom_model_list = [BottomModelForCifar10(),
+                         BottomModelForCifar10()]
+
+    vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
+
+
+
+    checkpoint = torch.load(args.base_mode, map_location=device)
+    args.start_epoch = checkpoint['epoch']
+    vfltrainer.load_model(args.base_mode, device)
+    print("=> loaded model '{}' (epoch: {} auc: {})"
+          .format(args.base_mode, checkpoint['epoch'], checkpoint['auc']))
+
+    # 重新初始化需要重建的网络
+    vfltrainer.bottom_model_list[1].apply(weights_init)
+
+    model_list = bottom_model_list + [top_model]
+
+    optimizer_list = [
+        torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
+        in model_list
+    ]
+
+    optimizer_list[0] = None
+    optimizer_list[2] = None
+
+    criterion = nn.CrossEntropyLoss().to(device)
+    bottom_criterion = keep_predict_loss
+
+    for epoch in range(0, 120):
+        train_loss = vfltrainer.train_single_model(train_queue, criterion, bottom_criterion, optimizer_list, 1,False, device, args)
+
+        test_loss, top1_acc, top5_acc = vfltrainer.test_mul(train_queue, criterion, device)
+        print("--- epoch: {0}, train_loss: {1}, test_loss: {2}, test_top1_acc: {3}, test_top5_acc: {4}".format(epoch, train_loss, test_loss, top1_acc, top5_acc))
+            
+
+    shadow_model = vfltrainer.bottom_model_list[1]
+
+    # 检查args.decoder_mode目录是否存在
+    save_dir = os.path.dirname(args.shadow_model)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    torch.save(shadow_model, args.shadow_model)
+    print("model saved")
+
+    return shadow_model
+
 
 
 def train_decoder(net, train_queue, test_queue, device, args):
     # 注意这个decoder 需要使用测试集进行训练
 
-    # Xb_shape = train_queue.dataset.Xb.shape
 
     print("################################ Set Federated Models, optimizer, loss ############################")
 
@@ -37,8 +110,9 @@ def train_decoder(net, train_queue, test_queue, device, args):
     # print(net_output.shape)
     decoder = CIFAR10CNNDecoder().to(device)
 
+
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
-                                       weight_decay=args.weight_decay)
+                                weight_decay=args.weight_decay)
 
     # loss function
     criterion = nn.MSELoss().to(device)
@@ -52,12 +126,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
 
     print("################################ Train Decoder Models ############################")
 
-
-    # for epoch in range(0, 360):
-    epoch = 0
-    bestPsnr = 0
-    consecutive_decreases = 0
-    while True:
+    for epoch in range(0, 120):
         # train and update
         epoch_loss = []
         for step, (trn_X, trn_y) in enumerate(test_queue):
@@ -82,49 +151,18 @@ def train_decoder(net, train_queue, test_queue, device, args):
             batch_loss.append(loss.item())
         epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
-        epoch += 1
-        print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
+        print(
+            "--- epoch: {0}, train_loss: {1}"
+            .format(epoch, epoch_loss))
 
-        if epoch % 10 == 0:
-            # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
-            #                                                                         device, args)
-            
-            psnr, euclidean_dist = test_rebuild_psnr(train_queue, net, decoder, device, args)
-            print(
-                f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
+    # 检查args.decoder_mode目录是否存在
+    save_dir = os.path.dirname(args.decoder_mode)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
-            if psnr >= bestPsnr:
-                if abs(psnr-bestPsnr) < 0.0001:
-                    # 检查args.decoder_mode目录是否存在
-                    save_dir = os.path.dirname(args.decoder_mode)
-                    if not os.path.exists(save_dir):
-                        os.makedirs(save_dir)
-
-                    torch.save(decoder, args.decoder_mode)
-                    break
-
-                consecutive_decreases = 0
-                bestPsnr = psnr
-                # 检查args.decoder_mode目录是否存在
-                save_dir = os.path.dirname(args.decoder_mode)
-                if not os.path.exists(save_dir):
-                    os.makedirs(save_dir)
-                torch.save(decoder, args.decoder_mode)
-
-
-            else:
-                consecutive_decreases += 1
-
-            if consecutive_decreases >= 2:
-                break
-
-
-
+    torch.save(decoder, args.decoder_mode)
     print("model saved")
     return decoder
-
-
-    # vfltrainer.save_model('/data/yangjirui/vfl-tab-reconstruction/model/adult/', 'final.pth.tar')
 
 
 def freeze_rand(seed):
@@ -134,20 +172,9 @@ def freeze_rand(seed):
     torch.cuda.manual_seed(seed)
 
 
-
-
 def rebuild(train_data, test_data, device, args):
     print("################################ load Federated Models ############################")
 
-    # 加载原始训练数据，用于对比恢复效果
-    # Xa_train, Xb_train, y_train = train_data
-    # train_dataset = adult_dataset(train_data)
-    # train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-    #                                           num_workers=args.workers, drop_last=False)
-    # test_dataset = adult_dataset(test_data)
-    # test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-    #                                             num_workers=args.workers, drop_last=False)
-    
     train_queue = torch.utils.data.DataLoader(
             dataset=train_data,
             batch_size=args.batch_size, shuffle=False,
@@ -173,7 +200,8 @@ def rebuild(train_data, test_data, device, args):
     print("=> loaded model '{}' (epoch: {} test_top1_acc: {})"
           .format(args.base_mode, checkpoint['epoch'], checkpoint['auc']))
 
-    net = vfltrainer.bottom_model_list[1].to(device)  # 需要恢复数据的网络
+    # net = vfltrainer.bottom_model_list[1].to(device)  # 需要恢复数据的网络
+    net = train_shadow_model(test_queue, device, args)  # 需要恢复数据的网络
 
     decoder = train_decoder(net, train_queue, test_queue, device, args)
 
@@ -242,7 +270,6 @@ def rebuild(train_data, test_data, device, args):
 
 
 
-
 def freeze_rand(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -258,7 +285,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser("TabRebuild")
     parser.add_argument('--multiple', action='store_true', help='Whether to conduct multiple experiments')
-    parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
+    parser.add_argument('--name', type=str, default='decoder-rebuild', help='experiment name')
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
                         help='location of the data corpus')
     parser.add_argument('--batch_size', type=int, default=1, help='batch size')
@@ -277,6 +304,7 @@ if __name__ == '__main__':
     #                     help='location of the data corpus')
     parser.add_argument('--base_mode', default='', type=str, metavar='PATH',
                         help='path to latest base mode (default: none)')
+    parser.add_argument('--grad_clip', type=float, default=5., help='gradient clipping')
     # ==========下面是几个重要的超参数==========
     parser.add_argument('--NIters', type=int, default=5000, help="Number of times to optimize")
     parser.add_argument('--Ndata', type=int, default=100, help="Recovery data quantity")
@@ -290,11 +318,12 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/model+data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/data.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
-    
+
+    # 指定rebuild的表格特征
     train_transform = transforms.Compose([
         #transforms.RandomHorizontalFlip(),
         #transforms.RandomCrop(32, padding=4),
@@ -306,12 +335,9 @@ if __name__ == '__main__':
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
-
     # Load CIFAR-10 dataset
     trainset = IndexedCIFAR10(root=args.data_dir, train=True, download=True, transform=train_transform)
     testset = IndexedCIFAR10(root=args.data_dir, train=False, download=True, transform=train_transform)
-
-
 
 
 

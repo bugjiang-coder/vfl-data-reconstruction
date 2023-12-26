@@ -5,7 +5,7 @@ import ruamel.yaml as yaml
 from abc import ABC, abstractmethod
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-
+from PIL import Image
 
 class AverageMeter(object):
     def __init__(self):
@@ -357,6 +357,25 @@ def test_rebuild_psnr(train_queue, net, decoder, device, args):
     # print("euclidean_dist", euclidean_dist)
 
     return psnr, euclidean_dist
+
+
+def save_tensor_as_image(tensor, filename):
+    # 确保在CPU上
+    tensor = tensor.cpu()
+        
+    # 转换为numpy数组
+    numpy_image = tensor.detach().numpy().transpose(1, 2, 0)  # 从[C, H, W]转换为[H, W, C]
+    
+    # 如果是浮点类型，需要缩放到[0, 255]并转换为uint8
+    if numpy_image.dtype == np.float32 or numpy_image.dtype == np.float64:
+        numpy_image = (numpy_image * 255).astype(np.uint8)
+    
+    # 转换为PIL图像
+    mode = 'RGB' if tensor.shape[0] == 3 else 'L'
+    pil_image = Image.fromarray(numpy_image, mode=mode)
+    
+    # 保存图像
+    pil_image.save(filename)
 
 # =================================为表格设计的损失函数=================================
 def bool_loss(input, boolList=None):
