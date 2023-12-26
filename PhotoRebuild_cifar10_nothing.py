@@ -16,7 +16,7 @@ sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 from fedml_core.preprocess.cifar10.preprocess_cifar10 import IndexedCIFAR10
 from fedml_core.model.cifar10Models import BottomModelForCifar10, TopModelForCifar10, CIFAR10CNNDecoder
 from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import over_write_args_from_file, save_tensor_as_image, PSNR, test_rebuild_psnr, keep_predict_loss
+from fedml_core.utils.utils import over_write_args_from_file, Similarity, save_tensor_as_image, test_rebuild_psnr, PSNR
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -25,32 +25,17 @@ import argparse
 import wandb
 import shutil
 
-def single_tabRebuildAcc(tab):
-    data = torch.zeros(tab['numList'][-1]+1)
-    for index in tab['numList']:
-        data[index] = 2 * torch.rand(1) - 1
-    # 注：数据预处理后的范围就是-1到1
-    # data[-1] = torch.rand(1)
-
-    for key, indices in tab['onehot'].items():
-        random_index = random.choice(indices)  # 随机选择一个索引
-        data[random_index] = 1  # 将选择的索引处的值设置为1
-
-    return data
-def tabDataGen(tab, batch_size, device='cpu'):
-    data = torch.stack([single_tabRebuildAcc(tab) for _ in range(batch_size)])
-    data = data.to(device)
-    return data
-
 
 def train_decoder(net, train_queue, test_queue, device, args):
     # 注意这个decoder 需要使用测试集进行训练
 
+    # Xb_shape = train_queue.dataset.Xb.shape
+
     print("################################ Set Federated Models, optimizer, loss ############################")
 
+    # net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
     # print(net_output.shape)
     decoder = CIFAR10CNNDecoder().to(device)
-
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                        weight_decay=args.weight_decay)
@@ -67,52 +52,42 @@ def train_decoder(net, train_queue, test_queue, device, args):
 
     print("################################ Train Decoder Models ############################")
 
+
+    # for epoch in range(0, 360):
     epoch = 0
     bestPsnr = 0
     consecutive_decreases = 0
-    # trn_X, trn_y  = test_queue
-    # torch.zeros_like(next(iter(test_queue))[0][1])
-    batch_data = next(iter(test_queue))[0][1]
-    # Xb_train = train_queue.dataset.Xb
-    # Xb_train.shape[1]
-    # print(batch_data.shape)
-    # sys.exit(0)
     while True:
         # train and update
         epoch_loss = []
-        for step in range(len(test_queue)):
-            # rand_X = torch.rand_like(trn_X)
-            # rand_X = [torch.rand_like(x) for x in trn_X]
-            # trn_X = [x.float().to(device) for x in rand_X]
+        for step, (trn_X, trn_y) in enumerate(train_queue):
+            if step == 1:
+                trn_X = [x.float().to(device) for x in trn_X]
+                batch_loss = []
 
-            # trn_X = tabDataGen(tab, args.batch_size, device=device)
-            trn_X = torch.rand_like(batch_data).to(device)
+                optimizer.zero_grad()
 
-            batch_loss = []
+                out = decoder(net(trn_X[1]))
 
+                # numloss = num_loss(out, tab['numList'])
+                # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
+                # bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+                #
+                # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
 
-            optimizer.zero_grad()
+                loss = criterion(out, trn_X[1])
+                loss.backward()
 
-            out = decoder(net(trn_X))
+                optimizer.step()
+                print("loss:", loss.item())
 
-            # numloss = num_loss(out, tab['numList'])
-            # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
-            # bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
-            #
-            # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
-
-            loss = criterion(out, trn_X)
-            loss.backward()
-
-            optimizer.step()
-
-            batch_loss.append(loss.item())
-        epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
         epoch += 1
-        print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
 
         if epoch % 10 == 0:
+            # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
+            #                                                                         device, args)
+            
             psnr, euclidean_dist = test_rebuild_psnr(train_queue, net, decoder, device, args)
             print(
                 f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
@@ -143,8 +118,12 @@ def train_decoder(net, train_queue, test_queue, device, args):
                 break
 
 
+
     print("model saved")
     return decoder
+
+
+    # vfltrainer.save_model('/data/yangjirui/vfl-tab-reconstruction/model/adult/', 'final.pth.tar')
 
 
 def freeze_rand(seed):
@@ -159,6 +138,7 @@ def freeze_rand(seed):
 def rebuild(train_data, test_data, device, args):
     print("################################ load Federated Models ############################")
 
+   
     train_queue = torch.utils.data.DataLoader(
             dataset=train_data,
             batch_size=args.batch_size, shuffle=False,
@@ -217,7 +197,7 @@ def rebuild(train_data, test_data, device, args):
 
         xGen = decoder(protocolData)
         
-        # save_path = './image/model'
+        # save_path = './image/nothing'
         # os.makedirs(save_path, exist_ok=True)
         # for i, data in enumerate(xGen):
         #     save_tensor_as_image(data, os.path.join(save_path, f'xGen_{i}.png'))
@@ -249,6 +229,7 @@ def rebuild(train_data, test_data, device, args):
             # inverse_data.to_csv(args.save + "inverse.csv", mode='a', header=False, index=False)
 
     return psnr, euclidean_dist
+
 
 
 
@@ -300,12 +281,11 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/model.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/nothing.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
-
-
+    
     train_transform = transforms.Compose([
         #transforms.RandomHorizontalFlip(),
         #transforms.RandomCrop(32, padding=4),

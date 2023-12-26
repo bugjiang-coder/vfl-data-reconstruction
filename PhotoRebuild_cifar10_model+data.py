@@ -139,15 +139,7 @@ def freeze_rand(seed):
 def rebuild(train_data, test_data, device, args):
     print("################################ load Federated Models ############################")
 
-    # 加载原始训练数据，用于对比恢复效果
-    # Xa_train, Xb_train, y_train = train_data
-    # train_dataset = adult_dataset(train_data)
-    # train_queue = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-    #                                           num_workers=args.workers, drop_last=False)
-    # test_dataset = adult_dataset(test_data)
-    # test_queue = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-    #                                             num_workers=args.workers, drop_last=False)
-    
+   
     train_queue = torch.utils.data.DataLoader(
             dataset=train_data,
             batch_size=args.batch_size, shuffle=False,
