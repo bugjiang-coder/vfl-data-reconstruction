@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.utils import shuffle
 import torchvision.transforms as transforms
+from pytorch_msssim import ssim
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
@@ -172,7 +173,9 @@ def rebuild(train_data, test_data, device, args):
     print("################################ recovery data ############################")
 
     psnr_list = []
+    ssim_list = []
     euclidean_dist_list = []
+    
 
     #  最后测试重建准确率需要在训练集上进行
     for trn_X, trn_y in tqdm(train_queue):
@@ -208,15 +211,22 @@ def rebuild(train_data, test_data, device, args):
 
         average_psnr = PSNR(originData, xGen)
         
+        average_ssim = ssim(originData, xGen, data_range=1, size_average=True).item()
+        # print(average_ssim)
+        # sys.exit(0)
+        
 
         euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
 
         psnr_list.append(average_psnr)
+        ssim_list.append(average_ssim)
         euclidean_dist_list.append(euclidean_dist)
 
     psnr = np.mean(psnr_list)
+    ssim_value  = np.mean(ssim_list)
     euclidean_dist = np.mean(euclidean_dist_list)
     print("PSNR:", psnr)
+    print("SSIM:", ssim_value )
     print("euclidean_dist", euclidean_dist)
     print("################################ save data ############################")
 
