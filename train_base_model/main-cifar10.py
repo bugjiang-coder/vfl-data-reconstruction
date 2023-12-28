@@ -14,7 +14,7 @@ sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 from fedml_core.preprocess.cifar10.preprocess_cifar10 import IndexedCIFAR10
 from fedml_core.model.cifar10Models import BottomModelForCifar10, TopModelForCifar10
 from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import adult_dataset, over_write_args_from_file, keep_predict_loss
+from fedml_core.utils.utils import over_write_args_from_file, keep_predict_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -63,7 +63,7 @@ def run_experiment(device, args):
             num_workers=args.workers
         )
 
-    print(train_queue.dataset.data.shape)
+    # print(train_queue.dataset.data.shape)
     # sys.exit(0)
 
     print("################################ Set Federated Models, optimizer, loss ############################")
@@ -76,6 +76,19 @@ def run_experiment(device, args):
         torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay) for model
         in model_list
     ]
+
+    stone1 = 50 # 50 int(args.epochs * 0.5)0.1
+    stone2 = 85  # 85 int(args.epochs * 0.8)
+    lr_scheduler_top_model = torch.optim.lr_scheduler.MultiStepLR(optimizer_list[2],
+                                                                    milestones=[stone1, stone2],
+                                                                    gamma=0.1)
+    lr_scheduler_a = torch.optim.lr_scheduler.MultiStepLR(optimizer_list[0],
+                                                            milestones=[stone1, stone2], gamma=0.1)
+    lr_scheduler_b = torch.optim.lr_scheduler.MultiStepLR(optimizer_list[1],
+                                                            milestones=[stone1, stone2], gamma=0.1)
+    # change the lr_scheduler to the one you want to use
+    lr_scheduler_list = [lr_scheduler_a, lr_scheduler_b, lr_scheduler_top_model]
+
 
     vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
@@ -91,12 +104,10 @@ def run_experiment(device, args):
             checkpoint = torch.load(args.resume, map_location=device)
             args.start_epoch = checkpoint['epoch']
             vfltrainer.load_model(args.resume, device)
-            print("=> loaded checkpoint '{}' (epoch: {} auc: {})"
+            print("=> loaded checkpoint '{}' (epoch: {} top1_acc: {})"
                   .format(args.resume, checkpoint['epoch'], checkpoint['auc']))
-            acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
-            print(
-                "--- epoch: {0}, test_loss: {1}, test_acc: {2}, test_precison: {3}, test_recall: {4}, test_f1: {5}, test_auc: {6}"
-                .format(checkpoint['epoch'], test_loss, acc, precision, recall, f1, auc))
+            test_loss, top1_acc, top5_acc = vfltrainer.test_mul(test_queue, criterion, device)
+            print("--- epoch: {0}, test_loss: {1}, test_top1_acc: {2}, test_top5_acc: {3}".format(checkpoint['epoch'], test_loss, top1_acc, top5_acc))
             sys.exit(0)
 
         else:
@@ -114,6 +125,10 @@ def run_experiment(device, args):
 
         # [optimizer_list[i].zero_grad() for i in range(k)]
 
+        lr_scheduler_list[0].step()
+        lr_scheduler_list[1].step()
+        lr_scheduler_list[2].step()
+        
         test_loss, top1_acc, top5_acc = vfltrainer.test_mul(test_queue, criterion, device)
 
         # wandb.log({"train_loss": train_loss[0],

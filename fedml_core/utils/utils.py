@@ -5,7 +5,7 @@ import ruamel.yaml as yaml
 from abc import ABC, abstractmethod
 from torch.utils.data import Dataset
 import torch.nn.functional as F
-
+from PIL import Image
 
 class AverageMeter(object):
     def __init__(self):
@@ -303,6 +303,79 @@ def test_rebuild_acc(train_queue, net, decoder, tab, device, args):
     # print("euclidean_dist", euclidean_dist)
 
     return acc, onehot_acc, num_acc, similarity, euclidean_dist
+
+# mse函数
+def mse(image1, image2):
+    # 不计算batch维度
+    return torch.mean((image1 - image2) ** 2, [1, 2, 3])
+
+# psnr函数
+def PSNR(image1, image2):
+    mse_values = mse(image1, image2)
+    # if mse_values == 0:
+    #     return float('inf')
+    PIXEL_MAX = 1.0 if image1.max() <= 1 else 255.0  # 根据图像数据范围调整
+    psnr_values = 20 * torch.log10(PIXEL_MAX / torch.sqrt(mse_values))
+    return torch.mean(psnr_values).item()
+
+def test_rebuild_psnr(train_queue, net, decoder, device, args):
+# for i in range(args.Ndata):
+    #     (trn_X, trn_y) = next(train_queue)
+    psnr_list = []
+    # similarity_list = []
+    euclidean_dist_list = []
+
+    #  最后测试重建准确率需要在训练集上进行
+    for trn_X, trn_y in train_queue:
+        trn_X = [x.float().to(device) for x in trn_X]
+
+        originData = trn_X[1]
+        protocolData = net.forward(originData).clone().detach()
+
+        xGen = decoder(protocolData)
+
+        average_psnr = PSNR(originData, xGen)
+        
+        # average_psnr = torch.mean(psnr_values)
+
+
+        # similarity = Similarity(xGen, originData)
+        euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
+
+        psnr_list.append(average_psnr)
+        # similarity_list.append(similarity)
+        euclidean_dist_list.append(euclidean_dist)
+
+
+    psnr = np.mean(psnr_list)
+    # similarity = np.mean(similarity_list)
+    euclidean_dist = np.mean(euclidean_dist_list)
+    # print("acc:", acc)
+    # print("onehot_acc:", onehot_acc)
+    # print("num_acc:", num_acc)
+    # print("similarity", similarity)
+    # print("euclidean_dist", euclidean_dist)
+
+    return psnr, euclidean_dist
+
+
+def save_tensor_as_image(tensor, filename):
+    # 确保在CPU上
+    tensor = tensor.cpu()
+        
+    # 转换为numpy数组
+    numpy_image = tensor.detach().numpy().transpose(1, 2, 0)  # 从[C, H, W]转换为[H, W, C]
+    
+    # 如果是浮点类型，需要缩放到[0, 255]并转换为uint8
+    if numpy_image.dtype == np.float32 or numpy_image.dtype == np.float64:
+        numpy_image = (numpy_image * 255).astype(np.uint8)
+    
+    # 转换为PIL图像
+    mode = 'RGB' if tensor.shape[0] == 3 else 'L'
+    pil_image = Image.fromarray(numpy_image, mode=mode)
+    
+    # 保存图像
+    pil_image.save(filename)
 
 # =================================为表格设计的损失函数=================================
 def bool_loss(input, boolList=None):
