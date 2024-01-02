@@ -36,7 +36,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
 
     # net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
     # print(net_output.shape)
-    decoder = CIFAR10CNNDecoder().to(device)
+    decoder = CIFAR10CNNDecoder(A_ratio=args.A_ratio).to(device)
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                        weight_decay=args.weight_decay)
@@ -61,30 +61,29 @@ def train_decoder(net, train_queue, test_queue, device, args):
     while True:
         # train and update
         epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(test_queue):
-            trn_X = [x.float().to(device) for x in trn_X]
-            batch_loss = []
+        for step, (trn_X, trn_y) in enumerate(train_queue):
+            if step == 1:
+                trn_X = [x.float().to(device) for x in trn_X]
+                batch_loss = []
 
-            optimizer.zero_grad()
+                optimizer.zero_grad()
 
-            out = decoder(net(trn_X[1]))
+                out = decoder(net(trn_X[1]))
 
-            # numloss = num_loss(out, tab['numList'])
-            # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
-            # bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
-            #
-            # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
+                # numloss = num_loss(out, tab['numList'])
+                # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
+                # bloss2_v2 = onehot_bool_loss_v2(out, tab['onehot'], tab['boolList'])
+                #
+                # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
 
-            loss = criterion(out, trn_X[1])
-            loss.backward()
+                loss = criterion(out, trn_X[1])
+                loss.backward()
 
-            optimizer.step()
+                optimizer.step()
+                print("loss:", loss.item())
 
-            batch_loss.append(loss.item())
-        epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
         epoch += 1
-        print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
 
         if epoch % 10 == 0:
             # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
@@ -95,7 +94,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
                 f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
 
             if psnr >= bestPsnr:
-                if abs(psnr-bestPsnr) < 0.0001:
+                if abs(psnr-bestPsnr) < 0.005:
                     # 检查args.decoder_mode目录是否存在
                     save_dir = os.path.dirname(args.decoder_mode)
                     if not os.path.exists(save_dir):
@@ -153,7 +152,7 @@ def rebuild(train_data, test_data, device, args):
         )
 
     # 加载VFL框架
-    top_model = TopModelForCifar10()
+    top_model = TopModelForCifar10(A_ratio=args.A_ratio)
     bottom_model_list = [BottomModelForCifar10(),
                          BottomModelForCifar10()]
 
@@ -175,7 +174,6 @@ def rebuild(train_data, test_data, device, args):
     psnr_list = []
     ssim_list = []
     euclidean_dist_list = []
-    
 
     #  最后测试重建准确率需要在训练集上进行
     for trn_X, trn_y in tqdm(train_queue):
@@ -200,9 +198,8 @@ def rebuild(train_data, test_data, device, args):
         protocolData = net.forward(originData).clone().detach()
 
         xGen = decoder(protocolData)
-        xGen = torch.rand_like(xGen)
         
-        # save_path = './image/model+data'
+        # save_path = './image/nothing'
         # os.makedirs(save_path, exist_ok=True)
         # for i, data in enumerate(xGen):
         #     save_tensor_as_image(data, os.path.join(save_path, f'xGen_{i}.png'))
@@ -211,14 +208,9 @@ def rebuild(train_data, test_data, device, args):
 
 
         average_psnr = PSNR(originData, xGen)
-        
         average_ssim = ssim(originData, xGen, data_range=1, size_average=True).item()
-        # print(average_ssim)
-        # sys.exit(0)
-        
 
         euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
-
         psnr_list.append(average_psnr)
         ssim_list.append(average_ssim)
         euclidean_dist_list.append(euclidean_dist)
@@ -291,9 +283,9 @@ if __name__ == '__main__':
     parser.add_argument('--nloss', type=float, default=0, help="Recovery data negative number loss intensity")
     parser.add_argument('--norloss', type=float, default=0, help="Recovery data negative number loss intensity")
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
-
+    parser.add_argument('--A_ratio', type=float, default=0.5, help="Recovery data negative number loss intensity")
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/model+data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/nothing.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -310,17 +302,28 @@ if __name__ == '__main__':
     ])
 
 
-    # Load CIFAR-10 dataset
-    trainset = IndexedCIFAR10(root=args.data_dir, train=True, download=True, transform=train_transform)
-    testset = IndexedCIFAR10(root=args.data_dir, train=False, download=True, transform=train_transform)
+    decoder_mode = args.decoder_mode
+    # shadow_model = args.shadow_model
+    base_mode = args.base_mode
+    radio_list = [0.1, 0.3, 0.7, 0.9]
+    # radio_list = [0.3, 0.7, 0.9]
+    # radio_list = [0.1]
+
+    for r in radio_list:
+        print("radio: ", r)
+        freeze_rand(args.seed)
+        # train, test = preprocess(args.data_dir, A_ratio=r)
+            # Load CIFAR-10 dataset
+        trainset = IndexedCIFAR10(A_ratio=r, root=args.data_dir, train=True, download=True, transform=train_transform)
+        testset = IndexedCIFAR10(A_ratio=r, root=args.data_dir, train=False, download=True, transform=train_transform)
 
 
+        args.A_ratio = r
+
+        args.base_mode = base_mode + str(r)
+        args.decoder_mode = decoder_mode + str(r)
+        # args.shadow_model = shadow_model + str(r)
 
 
+        rebuild(train_data=trainset, test_data=testset, device=device, args=args)
 
-    freeze_rand(args.seed)
-        # 是否要规范化
-
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=trainset, test_data=testset, device=device, args=args)

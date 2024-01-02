@@ -17,7 +17,7 @@ sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 from fedml_core.preprocess.cifar10.preprocess_cifar10 import IndexedCIFAR10
 from fedml_core.model.cifar10Models import BottomModelForCifar10, TopModelForCifar10, CIFAR10CNNDecoder
 from fedml_core.trainer.vfl_trainer import VFLTrainer
-from fedml_core.utils.utils import over_write_args_from_file, Similarity, save_tensor_as_image, test_rebuild_psnr, PSNR
+from fedml_core.utils.utils import over_write_args_from_file, save_tensor_as_image, PSNR, test_rebuild_psnr, keep_predict_loss
 
 # from fedml_api.utils.utils import save_checkpoint
 import torch
@@ -26,17 +26,32 @@ import argparse
 import wandb
 import shutil
 
+def single_tabRebuildAcc(tab):
+    data = torch.zeros(tab['numList'][-1]+1)
+    for index in tab['numList']:
+        data[index] = 2 * torch.rand(1) - 1
+    # 注：数据预处理后的范围就是-1到1
+    # data[-1] = torch.rand(1)
+
+    for key, indices in tab['onehot'].items():
+        random_index = random.choice(indices)  # 随机选择一个索引
+        data[random_index] = 1  # 将选择的索引处的值设置为1
+
+    return data
+def tabDataGen(tab, batch_size, device='cpu'):
+    data = torch.stack([single_tabRebuildAcc(tab) for _ in range(batch_size)])
+    data = data.to(device)
+    return data
+
 
 def train_decoder(net, train_queue, test_queue, device, args):
     # 注意这个decoder 需要使用测试集进行训练
 
-    # Xb_shape = train_queue.dataset.Xb.shape
-
     print("################################ Set Federated Models, optimizer, loss ############################")
 
-    # net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
     # print(net_output.shape)
     decoder = CIFAR10CNNDecoder().to(device)
+
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                        weight_decay=args.weight_decay)
@@ -53,21 +68,34 @@ def train_decoder(net, train_queue, test_queue, device, args):
 
     print("################################ Train Decoder Models ############################")
 
-
-    # for epoch in range(0, 360):
     epoch = 0
     bestPsnr = 0
     consecutive_decreases = 0
-    while True:
+    # trn_X, trn_y  = test_queue
+    # torch.zeros_like(next(iter(test_queue))[0][1])
+    batch_data = next(iter(test_queue))[0][1]
+    # Xb_train = train_queue.dataset.Xb
+    # Xb_train.shape[1]
+    # print(batch_data.shape)
+    # sys.exit(0)
+    # while True:
+    for i in range(320):
         # train and update
         epoch_loss = []
-        for step, (trn_X, trn_y) in enumerate(test_queue):
-            trn_X = [x.float().to(device) for x in trn_X]
+        for step in range(len(test_queue)):
+            # rand_X = torch.rand_like(trn_X)
+            # rand_X = [torch.rand_like(x) for x in trn_X]
+            # trn_X = [x.float().to(device) for x in rand_X]
+
+            # trn_X = tabDataGen(tab, args.batch_size, device=device)
+            trn_X = torch.rand_like(batch_data).to(device)
+
             batch_loss = []
+
 
             optimizer.zero_grad()
 
-            out = decoder(net(trn_X[1]))
+            out = decoder(net(trn_X))
 
             # numloss = num_loss(out, tab['numList'])
             # bloss2 = onehot_bool_loss(out, tab['onehot'], tab['boolList'])
@@ -75,7 +103,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
             #
             # loss = criterion(out, trn_X[1]) + args.numloss * numloss + args.bloss2_v2*bloss2_v2 + args.bloss2*bloss2
 
-            loss = criterion(out, trn_X[1])
+            loss = criterion(out, trn_X)
             loss.backward()
 
             optimizer.step()
@@ -86,46 +114,39 @@ def train_decoder(net, train_queue, test_queue, device, args):
         epoch += 1
         print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
 
-        if epoch % 10 == 0:
-            # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
-            #                                                                         device, args)
-            
-            psnr, euclidean_dist = test_rebuild_psnr(train_queue, net, decoder, device, args)
-            print(
-                f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
+        # if epoch % 10 == 0:
+        #     psnr, euclidean_dist = test_rebuild_psnr(train_queue, net, decoder, device, args)
+        #     print(
+        #         f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
 
-            if psnr >= bestPsnr:
-                if abs(psnr-bestPsnr) < 0.0001:
-                    # 检查args.decoder_mode目录是否存在
-                    save_dir = os.path.dirname(args.decoder_mode)
-                    if not os.path.exists(save_dir):
-                        os.makedirs(save_dir)
+        #     if psnr >= bestPsnr:
+        #         if abs(psnr-bestPsnr) < 0.005:
+        #             # 检查args.decoder_mode目录是否存在
+        #             save_dir = os.path.dirname(args.decoder_mode)
+        #             if not os.path.exists(save_dir):
+        #                 os.makedirs(save_dir)
 
-                    torch.save(decoder, args.decoder_mode)
-                    break
+        #             torch.save(decoder, args.decoder_mode)
+        #             break
 
-                consecutive_decreases = 0
-                bestPsnr = psnr
-                # 检查args.decoder_mode目录是否存在
-                save_dir = os.path.dirname(args.decoder_mode)
-                if not os.path.exists(save_dir):
-                    os.makedirs(save_dir)
-                torch.save(decoder, args.decoder_mode)
+        #         consecutive_decreases = 0
+        #         bestPsnr = psnr
+        #         # 检查args.decoder_mode目录是否存在
+        #         save_dir = os.path.dirname(args.decoder_mode)
+        #         if not os.path.exists(save_dir):
+        #             os.makedirs(save_dir)
+        #         torch.save(decoder, args.decoder_mode)
 
 
-            else:
-                consecutive_decreases += 1
+        #     else:
+        #         consecutive_decreases += 1
 
-            if consecutive_decreases >= 2:
-                break
-
+        #     if consecutive_decreases >= 10:
+        #         break
 
 
     print("model saved")
     return decoder
-
-
-    # vfltrainer.save_model('/data/yangjirui/vfl-tab-reconstruction/model/adult/', 'final.pth.tar')
 
 
 def freeze_rand(seed):
@@ -140,7 +161,6 @@ def freeze_rand(seed):
 def rebuild(train_data, test_data, device, args):
     print("################################ load Federated Models ############################")
 
-   
     train_queue = torch.utils.data.DataLoader(
             dataset=train_data,
             batch_size=args.batch_size, shuffle=False,
@@ -175,7 +195,6 @@ def rebuild(train_data, test_data, device, args):
     psnr_list = []
     ssim_list = []
     euclidean_dist_list = []
-    
 
     #  最后测试重建准确率需要在训练集上进行
     for trn_X, trn_y in tqdm(train_queue):
@@ -200,9 +219,8 @@ def rebuild(train_data, test_data, device, args):
         protocolData = net.forward(originData).clone().detach()
 
         xGen = decoder(protocolData)
-        xGen = torch.rand_like(xGen)
         
-        # save_path = './image/model+data'
+        # save_path = './image/model'
         # os.makedirs(save_path, exist_ok=True)
         # for i, data in enumerate(xGen):
         #     save_tensor_as_image(data, os.path.join(save_path, f'xGen_{i}.png'))
@@ -211,11 +229,7 @@ def rebuild(train_data, test_data, device, args):
 
 
         average_psnr = PSNR(originData, xGen)
-        
         average_ssim = ssim(originData, xGen, data_range=1, size_average=True).item()
-        # print(average_ssim)
-        # sys.exit(0)
-        
 
         euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
 
@@ -243,23 +257,7 @@ def rebuild(train_data, test_data, device, args):
     return psnr, euclidean_dist
 
 
-
-
-
-def freeze_rand(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-
-
-if __name__ == '__main__':
-    print("################################ prepare Data ############################")
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-
-    parser = argparse.ArgumentParser("TabRebuild")
+def set_args(parser):
     parser.add_argument('--multiple', action='store_true', help='Whether to conduct multiple experiments')
     parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
@@ -293,11 +291,29 @@ if __name__ == '__main__':
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/model+data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/cifar10/model.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
+    return args
+
+def freeze_rand(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+
+if __name__ == '__main__':
+    print("################################ prepare Data ############################")
+
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+
+    parser = argparse.ArgumentParser("TabRebuild")
     
+
+
     train_transform = transforms.Compose([
         #transforms.RandomHorizontalFlip(),
         #transforms.RandomCrop(32, padding=4),
@@ -310,17 +326,84 @@ if __name__ == '__main__':
     ])
 
 
-    # Load CIFAR-10 dataset
-    trainset = IndexedCIFAR10(root=args.data_dir, train=True, download=True, transform=train_transform)
-    testset = IndexedCIFAR10(root=args.data_dir, train=False, download=True, transform=train_transform)
 
 
+    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
 
 
+    list_of_args = []
 
-    freeze_rand(args.seed)
-        # 是否要规范化
+    # 列出所有的防御方法
+    # protectMethod = ['non', 'max_norm', 'iso', 'dp']
+    # protectMethod = ['iso', 'dp']
+    # protectMethod = ['dp']
+    # protectMethod = ['iso', 'dp']
+    protectMethod = ['iso']
 
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=trainset, test_data=testset, device=device, args=args)
+    # iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    iso_range = [0.01]
+
+    # iso_range = [1.0,1.5,2.0,2.5,3.0,3.5,4.0]
+    # iso_range = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5]
+    # iso_range = [1.0]
+
+    # dp_range = [0.1]
+    # dp_range = [0.3]
+    dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+
+    for method in protectMethod:
+        if method == 'max_norm':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'max_norm'
+            args.base_mode = save_path + 'max_norm' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'max_norm' + "/model" +'/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'dp':
+            for dp in dp_range:
+                parser = argparse.ArgumentParser("vflmodelnet")
+                args = set_args(parser)
+                args.save = save_path + 'DP' + str(dp)
+                args.base_mode = save_path + 'DP' + str(dp) + '/best.pth.tar'
+                args.decoder_mode = save_path + 'DP' + str(dp) + "/model" +'/decoder.pth.tar'+str(dp)
+                freeze_rand(args.seed)
+                list_of_args.append(args)
+        elif method == 'iso':
+            for iso in iso_range:
+                parser = argparse.ArgumentParser("vflmodelnet")
+                args = set_args(parser)
+                args.save = save_path + 'iso' + str(iso)
+                args.base_mode = save_path + 'iso' + str(iso) + '/best.pth.tar'
+                args.decoder_mode = save_path + 'iso' + str(iso) + "/model" + '/decoder.pth.tar'+str(iso)
+                freeze_rand(args.seed)
+                list_of_args.append(args)
+        elif method == 'non':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'non'
+            args.base_mode = save_path + 'non' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'non' + "/model" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+
+    # args.decoder_mode = decoder_mode + str(r)
+    # args.shadow_model = shadow_model + str(r)
+
+    for arg in list_of_args:
+        print("################################ start experiment ############################")
+        print(arg.save)
+        print(device)
+        if not os.path.exists(arg.save):
+            os.makedirs(arg.save)
+        txt_name = f"saved_attack_model"
+        savedStdout = sys.stdout
+
+        with open(arg.save + '/' + txt_name + '.txt', 'a') as file:
+            sys.stdout = file
+            trainset = IndexedCIFAR10(root=arg.data_dir, train=True, download=True, transform=train_transform)
+            testset = IndexedCIFAR10(root=arg.data_dir, train=False, download=True, transform=train_transform)
+            freeze_rand(arg.seed)
+            rebuild(train_data=trainset, test_data=testset, device=device, args=arg)
+            sys.stdout = savedStdout
+        print("################################ end experiment ############################")

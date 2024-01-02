@@ -9,6 +9,7 @@ from tqdm import tqdm
 from sklearn.utils import shuffle
 import torchvision.transforms as transforms
 from pytorch_msssim import ssim
+from torch.utils.data import Subset
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
 # 加入模块的搜索路径
@@ -95,7 +96,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
                 f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
 
             if psnr >= bestPsnr:
-                if abs(psnr-bestPsnr) < 0.0001:
+                if abs(psnr-bestPsnr) < 0.001:
                     # 检查args.decoder_mode目录是否存在
                     save_dir = os.path.dirname(args.decoder_mode)
                     if not os.path.exists(save_dir):
@@ -200,7 +201,6 @@ def rebuild(train_data, test_data, device, args):
         protocolData = net.forward(originData).clone().detach()
 
         xGen = decoder(protocolData)
-        xGen = torch.rand_like(xGen)
         
         # save_path = './image/model+data'
         # os.makedirs(save_path, exist_ok=True)
@@ -318,9 +318,35 @@ if __name__ == '__main__':
 
 
 
-    freeze_rand(args.seed)
+    # freeze_rand(args.seed)
         # 是否要规范化
 
         # 训练并生成
         # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=trainset, test_data=testset, device=device, args=args)
+    # rebuild(train_data=trainset, test_data=testset, device=device, args=args)
+
+    data_ratio_list = [0.001, 0.01, 0.1, 0.5]
+
+    decoder_mode = args.decoder_mode
+    # shadow_model = args.shadow_model
+    base_mode = args.base_mode
+    # radio_list = [0.13, 0.3, 0.7, 0.9]
+
+    for r in data_ratio_list:
+        print("radio: ", r)
+        freeze_rand(args.seed)
+        
+        subset_size = int(len(testset)*r)
+        # 生成索引列表
+        subset_indices = list(range(subset_size))
+
+        # 使用Subset类来创建一个新的数据集，只包含所需的前30%数据
+        sub_testset = Subset(testset, subset_indices)
+        
+
+        # args.base_mode = base_mode +"data" + str(r)
+        args.decoder_mode = decoder_mode + "data" + str(r)
+        # args.shadow_model = shadow_model + str(r)
+
+        rebuild(train_data=trainset, test_data=sub_testset, device=device, args=args)
+        # rebuild(train_data=train, test_data=new_train, tab=tab, device=device, args=args)

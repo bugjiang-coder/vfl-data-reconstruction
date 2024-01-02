@@ -6,3 +6,4 @@ dataset/
 model/
 *.pyc
 image/
+*.log
