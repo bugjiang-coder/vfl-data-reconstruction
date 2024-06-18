@@ -5,6 +5,18 @@ from PIL import Image
 import numpy as np
 
 class IndexedCIFAR10(CIFAR10):
+    def __init__(self, *args, **kwargs):
+        if 'A_ratio' in kwargs.keys():
+            self.A_ratio = kwargs['A_ratio']
+        else:
+            self.A_ratio = 0.5
+        # 将args和kwargs中的参数中的A_ratio去掉，否则会报错
+        if 'A_ratio' in kwargs.keys():
+            del kwargs['A_ratio']
+        super().__init__(*args, **kwargs)
+        
+        
+    
     def __getitem__(self, index):
         img, target = self.data[index], self.targets[index]
 
@@ -18,8 +30,12 @@ class IndexedCIFAR10(CIFAR10):
         if self.target_transform is not None:
             target = self.target_transform(target)
         # print(img.shape)
-        x_a = img[:, :, 0:16]
-        x_b = img[:, :, 16:32]
+        
+        A_size = int(32  * self.A_ratio)
+        # B_size = 32 - A_size
+        
+        x_a = img[:, :, 0:A_size]
+        x_b = img[:, :, A_size:32]
 
         return [x_a, x_b], target
 

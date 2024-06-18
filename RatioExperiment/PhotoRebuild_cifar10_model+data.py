@@ -36,7 +36,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
 
     # net_output = net(torch.zeros_like(next(iter(train_queue))[0][1]).to(device))
     # print(net_output.shape)
-    decoder = CIFAR10CNNDecoder().to(device)
+    decoder = CIFAR10CNNDecoder(args.A_ratio).to(device)
 
     optimizer = torch.optim.SGD(decoder.parameters(), args.lr, momentum=args.momentum,
                                        weight_decay=args.weight_decay)
@@ -95,7 +95,7 @@ def train_decoder(net, train_queue, test_queue, device, args):
                 f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
 
             if psnr >= bestPsnr:
-                if abs(psnr-bestPsnr) < 0.0001:
+                if abs(psnr-bestPsnr) < 0.005:
                     # 检查args.decoder_mode目录是否存在
                     save_dir = os.path.dirname(args.decoder_mode)
                     if not os.path.exists(save_dir):
@@ -153,7 +153,7 @@ def rebuild(train_data, test_data, device, args):
         )
 
     # 加载VFL框架
-    top_model = TopModelForCifar10()
+    top_model = TopModelForCifar10(A_ratio=args.A_ratio)
     bottom_model_list = [BottomModelForCifar10(),
                          BottomModelForCifar10()]
 
@@ -200,8 +200,8 @@ def rebuild(train_data, test_data, device, args):
         protocolData = net.forward(originData).clone().detach()
 
         xGen = decoder(protocolData)
-        xGen = torch.rand_like(xGen)
         
+        # xGen = torch.rand_like(xGen)
         # save_path = './image/model+data'
         # os.makedirs(save_path, exist_ok=True)
         # for i, data in enumerate(xGen):
@@ -292,6 +292,8 @@ if __name__ == '__main__':
     parser.add_argument('--norloss', type=float, default=0, help="Recovery data negative number loss intensity")
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
+    parser.add_argument('--A_ratio', type=float, default=0.5, help="Recovery data negative number loss intensity")
+    
     # config file
     parser.add_argument('--c', type=str, default='./configs/attack/cifar10/model+data.yml', help='config file')
 
@@ -310,17 +312,32 @@ if __name__ == '__main__':
     ])
 
 
-    # Load CIFAR-10 dataset
-    trainset = IndexedCIFAR10(root=args.data_dir, train=True, download=True, transform=train_transform)
-    testset = IndexedCIFAR10(root=args.data_dir, train=False, download=True, transform=train_transform)
 
 
 
+    
+    decoder_mode = args.decoder_mode
+    # shadow_model = args.shadow_model
+    base_mode = args.base_mode
+    radio_list = [0.1, 0.3, 0.7, 0.9]
+    # radio_list = [0.3, 0.7, 0.9]
+    # radio_list = [0.5]
+
+    for r in radio_list:
+        print("radio: ", r)
+        freeze_rand(args.seed)
+        # train, test = preprocess(args.data_dir, A_ratio=r)
+            # Load CIFAR-10 dataset
+        trainset = IndexedCIFAR10(A_ratio=r, root=args.data_dir, train=True, download=True, transform=train_transform)
+        testset = IndexedCIFAR10(A_ratio=r, root=args.data_dir, train=False, download=True, transform=train_transform)
 
 
-    freeze_rand(args.seed)
-        # 是否要规范化
+        args.A_ratio = r
 
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=trainset, test_data=testset, device=device, args=args)
+        args.base_mode = base_mode + str(r)
+        args.decoder_mode = decoder_mode + str(r)
+        # args.shadow_model = shadow_model + str(r)
+
+
+        rebuild(train_data=trainset, test_data=testset, device=device, args=args)
+

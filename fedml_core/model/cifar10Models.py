@@ -131,8 +131,13 @@ class BottomModelForCifar10(nn.Module):
 
 
 class CIFAR10CNNDecoder(nn.Module):
-    def __init__(self):
+    def __init__(self, A_ratio=0.5):
         super(CIFAR10CNNDecoder, self).__init__()
+        # self.A_ratio=A_ratio
+        if not A_ratio == 0.5:
+            self.A_ratio = A_ratio
+        else:
+            self.A_ratio = 0.5
 
         self.layerDict = collections.OrderedDict()
 
@@ -159,8 +164,13 @@ class CIFAR10CNNDecoder(nn.Module):
         self.layerDict['deconv21'] = self.deconv21
 
     def forward(self, x):
+        # print(x.shape)
         for layer in self.layerDict:
             x = self.layerDict[layer](x)
+        if self.A_ratio == 0.1 or self.A_ratio == 0.3:
+            x = nn.functional.pad(x, (0, 1), 'constant', 0)
+        # x = nn.functional.pad(x, (0, 1), 'constant', 0)
+        # print(x.shape)
         return x
 
 # class TopModelForCifar10(nn.Module):
@@ -187,7 +197,7 @@ class CIFAR10CNNDecoder(nn.Module):
 #         return F.log_softmax(x, dim=1)
 
 class TopModelForCifar10(nn.Module):
-    def __init__(self):
+    def __init__(self, A_ratio=0.5):
         super(TopModelForCifar10, self).__init__()
         self.conv21 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
         self.conv22 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
@@ -197,7 +207,19 @@ class TopModelForCifar10(nn.Module):
         # Define the 2 fully connected layers
         # The input features to the first fully connected layer will change
         # because the width of the image is halved
-        self.fc1 = nn.Linear(256 * 4 * 4, 1024)  # Adjusted for halved image width
+        if A_ratio == 0.5:
+            self.fc1 = nn.Linear(256 * 4 * 4, 1024)  # Adjusted for halved image width
+        elif A_ratio == 0.1:
+            self.fc1 = nn.Linear(3072, 1024)
+        elif A_ratio == 0.3:
+            self.fc1 = nn.Linear(3072, 1024)
+        elif A_ratio == 0.7:
+            self.fc1 = nn.Linear(4096, 1024)
+        elif A_ratio == 0.9:
+            self.fc1 = nn.Linear(4096, 1024)
+        else:
+            raise ValueError("A_ratio should be 0.5, 0.1, 0.3, 0.7 or 0.9")
+        
         self.fc2 = nn.Linear(1024, 10)
 
         # Define the pooling layer
@@ -207,6 +229,8 @@ class TopModelForCifar10(nn.Module):
         self.apply(weights_init)
 
     def forward(self, input_tensor_top_model_a, input_tensor_top_model_b):
+        # print(input_tensor_top_model_a.shape)
+        batch_size = input_tensor_top_model_a.shape[0]
         # print(input_tensor_top_model_a.shape) torch.Size([64, 64, 16, 8])
         # print(input_tensor_top_model_b.shape)
         # sys.exit(0)
@@ -225,7 +249,8 @@ class TopModelForCifar10(nn.Module):
 
         # Flatten the output for the fully connected layer
         # The flattening process needs to take into account the halved width
-        x = x.view(-1, 256 * 4 * 4)
+        x = x.view(batch_size, -1)
+        # print(x.shape)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)

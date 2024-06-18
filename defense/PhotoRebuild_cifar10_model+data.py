@@ -58,7 +58,8 @@ def train_decoder(net, train_queue, test_queue, device, args):
     epoch = 0
     bestPsnr = 0
     consecutive_decreases = 0
-    while True:
+    # while True:
+    for i in range(320):
         # train and update
         epoch_loss = []
         for step, (trn_X, trn_y) in enumerate(test_queue):
@@ -86,38 +87,38 @@ def train_decoder(net, train_queue, test_queue, device, args):
         epoch += 1
         print("--- epoch: {0}, train_loss: {1}".format(epoch, epoch_loss))
 
-        if epoch % 10 == 0:
-            # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
-            #                                                                         device, args)
+        # if epoch % 10 == 0:
+        #     # acc, onehot_acc, num_acc, similarity, euclidean_dist = test_rebuild_acc(train_queue, net, decoder, tab,
+        #     #                                                                         device, args)
             
-            psnr, euclidean_dist = test_rebuild_psnr(train_queue, net, decoder, device, args)
-            print(
-                f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
+        #     psnr, euclidean_dist = test_rebuild_psnr(train_queue, net, decoder, device, args)
+        #     print(
+        #         f"psnr: {psnr}, euclidean_dist: {euclidean_dist}")
 
-            if psnr >= bestPsnr:
-                if abs(psnr-bestPsnr) < 0.0001:
-                    # 检查args.decoder_mode目录是否存在
-                    save_dir = os.path.dirname(args.decoder_mode)
-                    if not os.path.exists(save_dir):
-                        os.makedirs(save_dir)
+        #     if psnr >= bestPsnr:
+        #         if abs(psnr-bestPsnr) < 0.005:
+        #             # 检查args.decoder_mode目录是否存在
+        #             save_dir = os.path.dirname(args.decoder_mode)
+        #             if not os.path.exists(save_dir):
+        #                 os.makedirs(save_dir)
 
-                    torch.save(decoder, args.decoder_mode)
-                    break
+        #             torch.save(decoder, args.decoder_mode)
+        #             break
 
-                consecutive_decreases = 0
-                bestPsnr = psnr
-                # 检查args.decoder_mode目录是否存在
-                save_dir = os.path.dirname(args.decoder_mode)
-                if not os.path.exists(save_dir):
-                    os.makedirs(save_dir)
-                torch.save(decoder, args.decoder_mode)
+        #         consecutive_decreases = 0
+        #         bestPsnr = psnr
+        #         # 检查args.decoder_mode目录是否存在
+        #         save_dir = os.path.dirname(args.decoder_mode)
+        #         if not os.path.exists(save_dir):
+        #             os.makedirs(save_dir)
+        #         torch.save(decoder, args.decoder_mode)
 
 
-            else:
-                consecutive_decreases += 1
+        #     else:
+        #         consecutive_decreases += 1
 
-            if consecutive_decreases >= 2:
-                break
+        #     if consecutive_decreases >= 2:
+        #         break
 
 
 
@@ -126,13 +127,6 @@ def train_decoder(net, train_queue, test_queue, device, args):
 
 
     # vfltrainer.save_model('/data/yangjirui/vfl-tab-reconstruction/model/adult/', 'final.pth.tar')
-
-
-def freeze_rand(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
 
 
 
@@ -200,7 +194,6 @@ def rebuild(train_data, test_data, device, args):
         protocolData = net.forward(originData).clone().detach()
 
         xGen = decoder(protocolData)
-        xGen = torch.rand_like(xGen)
         
         # save_path = './image/model+data'
         # os.makedirs(save_path, exist_ok=True)
@@ -243,23 +236,7 @@ def rebuild(train_data, test_data, device, args):
     return psnr, euclidean_dist
 
 
-
-
-
-def freeze_rand(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-
-
-if __name__ == '__main__':
-    print("################################ prepare Data ############################")
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-
-    parser = argparse.ArgumentParser("TabRebuild")
+def set_args(parser):
     parser.add_argument('--multiple', action='store_true', help='Whether to conduct multiple experiments')
     parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
@@ -297,6 +274,23 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
+    return args
+
+def freeze_rand(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+
+if __name__ == '__main__':
+    print("################################ prepare Data ############################")
+
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+
+    parser = argparse.ArgumentParser("TabRebuild")
+    
     
     train_transform = transforms.Compose([
         #transforms.RandomHorizontalFlip(),
@@ -309,18 +303,80 @@ if __name__ == '__main__':
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
+    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
 
-    # Load CIFAR-10 dataset
-    trainset = IndexedCIFAR10(root=args.data_dir, train=True, download=True, transform=train_transform)
-    testset = IndexedCIFAR10(root=args.data_dir, train=False, download=True, transform=train_transform)
+    list_of_args = []
 
+    # 列出所有的防御方法
+    # protectMethod = ['non', 'max_norm', 'iso', 'dp']
+    # protectMethod = ['iso', 'dp']
+    protectMethod = ['dp']
+    # protectMethod = ['iso', 'dp']
+    # protectMethod = ['iso']
 
+    iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
+    # iso_range = [1.0,1.5,2.0,2.5,3.0,3.5,4.0]
+    # iso_range = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5]
+    # iso_range = [0.5]
 
+    # dp_range = [0.1]
+    dp_range = [0.5]
+    # dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
-    freeze_rand(args.seed)
-        # 是否要规范化
+    for method in protectMethod:
+        if method == 'max_norm':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'max_norm'
+            args.base_mode = save_path + 'max_norm' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'max_norm' + "/model+data" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'dp':
+            for dp in dp_range:
+                parser = argparse.ArgumentParser("vflmodelnet")
+                args = set_args(parser)
+                args.save = save_path + 'DP' + str(dp)
+                args.base_mode = save_path + 'DP' + str(dp) + '/best.pth.tar'
+                args.decoder_mode = save_path + 'DP' + str(dp) + "/model+data" + '/decoder.pth.tar'
+                freeze_rand(args.seed)
+                list_of_args.append(args)
+        elif method == 'iso':
+            for iso in iso_range:
+                parser = argparse.ArgumentParser("vflmodelnet")
+                args = set_args(parser)
+                args.save = save_path + 'iso' + str(iso)
+                args.base_mode = save_path + 'iso' + str(iso) + '/best.pth.tar'
+                args.decoder_mode = save_path + 'iso' + str(iso) + "/model+data" + '/decoder.pth.tar'
+                freeze_rand(args.seed)
+                list_of_args.append(args)
+        elif method == 'non':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'non'
+            args.base_mode = save_path + 'non' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'non' + "/model+data" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
 
-        # 训练并生成
-        # 白盒攻击本身并不需要训练数据
-    rebuild(train_data=trainset, test_data=testset, device=device, args=args)
+    # args.decoder_mode = decoder_mode + str(r)
+    # args.shadow_model = shadow_model + str(r)
+
+    for arg in list_of_args:
+        print("################################ start experiment ############################")
+        print(arg.save)
+        print(device)
+        if not os.path.exists(arg.save):
+            os.makedirs(arg.save)
+        txt_name = f"saved_attack_model+data"
+        savedStdout = sys.stdout
+
+        with open(arg.save + '/' + txt_name + '.txt', 'a') as file:
+            sys.stdout = file
+            trainset = IndexedCIFAR10(root=arg.data_dir, train=True, download=True, transform=train_transform)
+            testset = IndexedCIFAR10(root=arg.data_dir, train=False, download=True, transform=train_transform)
+            freeze_rand(arg.seed)
+            rebuild(train_data=trainset, test_data=testset, device=device, args=arg)
+            sys.stdout = savedStdout
+        print("################################ end experiment ############################")

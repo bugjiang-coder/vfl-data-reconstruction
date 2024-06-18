@@ -63,7 +63,7 @@ def run_experiment(device, args):
             num_workers=args.workers
         )
 
-    print(train_queue.dataset.data.shape)
+    # print(train_queue.dataset.data.shape)
     # sys.exit(0)
 
     print("################################ Set Federated Models, optimizer, loss ############################")
@@ -77,6 +77,19 @@ def run_experiment(device, args):
         in model_list
     ]
 
+    stone1 = 50 # 50 int(args.epochs * 0.5)0.1
+    stone2 = 85  # 85 int(args.epochs * 0.8)
+    lr_scheduler_top_model = torch.optim.lr_scheduler.MultiStepLR(optimizer_list[2],
+                                                                    milestones=[stone1, stone2],
+                                                                    gamma=0.1)
+    lr_scheduler_a = torch.optim.lr_scheduler.MultiStepLR(optimizer_list[0],
+                                                            milestones=[stone1, stone2], gamma=0.1)
+    lr_scheduler_b = torch.optim.lr_scheduler.MultiStepLR(optimizer_list[1],
+                                                            milestones=[stone1, stone2], gamma=0.1)
+    # change the lr_scheduler to the one you want to use
+    lr_scheduler_list = [lr_scheduler_a, lr_scheduler_b, lr_scheduler_top_model]
+
+
     vfltrainer = VFLTrainer(top_model, bottom_model_list, args)
 
     # loss function
@@ -85,35 +98,23 @@ def run_experiment(device, args):
     bottom_criterion = keep_predict_loss
 
     # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume, map_location=device)
-            args.start_epoch = checkpoint['epoch']
-            vfltrainer.load_model(args.resume, device)
-            print("=> loaded checkpoint '{}' (epoch: {} auc: {})"
-                  .format(args.resume, checkpoint['epoch'], checkpoint['auc']))
-            acc, auc, test_loss, precision, recall, f1 = vfltrainer.test(test_queue, criterion, device)
-            print(
-                "--- epoch: {0}, test_loss: {1}, test_acc: {2}, test_precison: {3}, test_recall: {4}, test_f1: {5}, test_auc: {6}"
-                .format(checkpoint['epoch'], test_loss, acc, precision, recall, f1, auc))
-            sys.exit(0)
-
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
 
     print("################################ Train Federated Models ############################")
 
     best_top1_acc = 0.0
 
-    for epoch in range(args.start_epoch, args.epochs):
+    for epoch in range(100):
 
-        logging.info('epoch %d args.lr %e ', epoch, args.lr)
+        # logging.info('epoch %d args.lr %e ', epoch, args.lr)
 
         train_loss = vfltrainer.train(train_queue, criterion, bottom_criterion, optimizer_list, device, args)
 
         # [optimizer_list[i].zero_grad() for i in range(k)]
 
+        lr_scheduler_list[0].step()
+        lr_scheduler_list[1].step()
+        lr_scheduler_list[2].step()
+        
         test_loss, top1_acc, top5_acc = vfltrainer.test_mul(test_queue, criterion, device)
 
         # wandb.log({"train_loss": train_loss[0],
@@ -136,14 +137,8 @@ def run_experiment(device, args):
 
 
         ## save partyA and partyB model parameters
-        if epoch % 2 == 0:
-            is_best = top1_acc > best_top1_acc
-            best_auc = max(top1_acc, best_top1_acc)
+        vfltrainer.save_model(args.save, 'best.pth.tar', epoch, top1_acc)
 
-            vfltrainer.save_model(args.save, 'checkpoint_{:04d}.pth.tar'.format(epoch), epoch, top1_acc)
-            if is_best:
-                shutil.copyfile(args.save + 'checkpoint_{:04d}.pth.tar'.format(epoch),
-                                args.save + '/best.pth.tar')
 
     # vfltrainer.save_model('/data/yangjirui/vfl-tab-reconstruction/model/adult/', 'final.pth.tar')
 
@@ -155,13 +150,7 @@ def freeze_rand(seed):
     torch.cuda.manual_seed(seed)
 
 
-if __name__ == '__main__':
-    print("################################ Prepare Data ############################")
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-
-    parser = argparse.ArgumentParser("vflmodelnet")
+def set_args(parser):
     parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
                         help='location of the data corpus')
     parser.add_argument('--name', type=str, default='adult-2layer', help='experiment name')
@@ -198,31 +187,101 @@ if __name__ == '__main__':
 
 
     # config file
-    parser.add_argument('--c', type=str, default='./configs/train/cifar10_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='../configs/train/cifar10_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
+    return args
 
-    logging.basicConfig()
+def run(args):
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    print("################################ start experiment ############################")
+    print(args.save)
+    print(device)
 
-    # 基本配置
-    # logging.basicConfig(filename='example.log', level=logging.DEBUG)
+    if not os.path.exists(args.save):
+        os.makedirs(args.save)
 
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    txt_name = f"saved_process_data"
+    savedStdout = sys.stdout
+    with open(args.save + '/' + txt_name + '.txt', 'a') as file:
+        sys.stdout = file
+        run_experiment(device=device, args=args)
+        sys.stdout = savedStdout
+    print("################################ end experiment ############################")
 
-    logger.info(args)
-    logger.info(device)
 
-    freeze_rand(args.seed)
+
+if __name__ == '__main__':
+    print("################################ Prepare Data ############################")
+
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+
+    torch.cuda.set_device(1)
+
+    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
 
     # # 这个是一个类似tensorboard的东西,可视化实验过程
     # wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
     #            name="VFL-{}".format(args.name),
     #            config=args)
 
-    run_experiment(device=device, args=args)
+    list_of_args = []
 
+    # 列出所有的防御方法
+    # protectMethod = ['non', 'max_norm', 'iso', 'gc', 'lap_noise', 'signSGD']
+    # protectMethod = ['non', 'max_norm', 'iso', 'dp']
+    protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['dp']
+    # protectMethod = ['iso', 'dp']
+    # protectMethod = ['iso']
+
+    iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+
+    # iso_range = [1.0,1.5,2.0,2.5,3.0,3.5,4.0]
+    # iso_range = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5]
+    # iso_range = [1.0]
+
+    # dp_range = [0.1]
+    # dp_range = [0.5, 1.0]
+    dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+
+    for method in protectMethod:
+        if method == 'max_norm':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.max_norm = True
+            args.save = save_path + 'max_norm'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'dp':
+            for dp in dp_range:
+                parser = argparse.ArgumentParser("vflmodelnet")
+                args = set_args(parser)
+                args.DP = True
+                args.DP_ratio = dp
+                args.save = save_path + 'DP' + str(dp)
+                freeze_rand(args.seed)
+                list_of_args.append(args)
+        elif method == 'iso':
+            for iso in iso_range:
+                parser = argparse.ArgumentParser("vflmodelnet")
+                args = set_args(parser)
+                args.iso = True
+                args.iso_ratio = iso
+                args.save = save_path + 'iso' + str(iso)
+                freeze_rand(args.seed)
+                list_of_args.append(args)
+        elif method == 'non':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'non'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+
+    for arg in list_of_args:
+        run(arg)
     # reference training result:
     # --- epoch: 99, batch: 1547, loss: 0.11550658332804839, acc: 0.9359105089400196, auc: 0.8736984159409958
     # --- (0.9270889578726378, 0.5111934752243287, 0.5054099033579607, None)
