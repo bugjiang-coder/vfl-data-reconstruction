@@ -7,3 +7,9 @@ model/
 *.pyc
 image/
 *.log
+wandb/
+rebuild-data/
+*.csv
+log/
+old*/
+test_code/
