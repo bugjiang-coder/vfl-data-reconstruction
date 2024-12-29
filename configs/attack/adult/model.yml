@@ -3,16 +3,16 @@ name: decoder-rebuild-2layer-all-data
 
 
 # dir
-data_dir: /data/yangjirui/vfl-tab-reconstruction/dataset/adult/adult.data
+data_dir: ./dataset/adult/adult.data
 #resume: ''
-#resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
+#resume: ./model/adult/v0/best.pth.tar
 #save: ''
-save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v2-2layer/
-base_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/best.pth.tar
-#decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v2-2layer/attack-model/decoder_model_360epoch-loss.pth.tar
-decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/attack-model/model360.pth.tar
-#origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
-#rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
+save: ./rebuild-data/adult/v2-2layer/
+base_mode: ./model/adult/v6/best.pth.tar
+#decoder_mode: ./model/adult/v2-2layer/attack-model/decoder_model_360epoch-loss.pth.tar
+decoder_mode: ./model/adult/v6/attack-model/model360.pth.tar
+#origin_data_output: ./rebuild-data/adult/v1/origin_data.csv
+#rebuild_data_output: ./rebuild-data/adult/v1/rebuild_data.csv
 
 # model
 report_freq: 10

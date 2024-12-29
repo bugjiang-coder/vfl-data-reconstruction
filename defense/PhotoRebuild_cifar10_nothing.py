@@ -288,7 +288,7 @@ if __name__ == '__main__':
     print("################################ prepare Data ############################")
 
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("TabRebuild")
     
@@ -304,13 +304,14 @@ if __name__ == '__main__':
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
-    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
+    save_path = "./model/cifar10/defense/"
     list_of_args = []
 
     # 列出所有的防御方法
     # protectMethod = ['non', 'max_norm', 'iso', 'dp']
     # protectMethod = ['iso', 'dp']
-    protectMethod = ['dp']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
     # protectMethod = ['iso', 'dp']
     # protectMethod = ['iso']
 
@@ -359,6 +360,22 @@ if __name__ == '__main__':
             args.decoder_mode = save_path + 'non' + "/non" + '/decoder.pth.tar'
             freeze_rand(args.seed)
             list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            args.base_mode = save_path + 'vfldefender' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'vfldefender' + "/vfldefender" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
+            args.base_mode = save_path + 'PA_iMFL' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'PA_iMFL' + "/PA_iMFL" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
 
     # args.decoder_mode = decoder_mode + str(r)
     # args.shadow_model = shadow_model + str(r)
@@ -370,13 +387,18 @@ if __name__ == '__main__':
         if not os.path.exists(arg.save):
             os.makedirs(arg.save)
         txt_name = f"saved_attack_nothing"
-        savedStdout = sys.stdout
+        # savedStdout = sys.stdout
 
-        with open(arg.save + '/' + txt_name + '.txt', 'a') as file:
-            sys.stdout = file
-            trainset = IndexedCIFAR10(root=arg.data_dir, train=True, download=True, transform=train_transform)
-            testset = IndexedCIFAR10(root=arg.data_dir, train=False, download=True, transform=train_transform)
-            freeze_rand(arg.seed)
-            rebuild(train_data=trainset, test_data=testset, device=device, args=arg)
-            sys.stdout = savedStdout
-        print("################################ end experiment ############################")
+        # with open(arg.save + '/' + txt_name + '.txt', 'a') as file:
+        #     sys.stdout = file
+        #     trainset = IndexedCIFAR10(root=arg.data_dir, train=True, download=True, transform=train_transform)
+        #     testset = IndexedCIFAR10(root=arg.data_dir, train=False, download=True, transform=train_transform)
+        #     freeze_rand(arg.seed)
+        #     rebuild(train_data=trainset, test_data=testset, device=device, args=arg)
+        #     sys.stdout = savedStdout
+        # print("################################ end experiment ############################")
+        
+        trainset = IndexedCIFAR10(root=arg.data_dir, train=True, download=True, transform=train_transform)
+        testset = IndexedCIFAR10(root=arg.data_dir, train=False, download=True, transform=train_transform)
+        freeze_rand(arg.seed)
+        rebuild(train_data=trainset, test_data=testset, device=device, args=arg)

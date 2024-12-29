@@ -8,6 +8,7 @@ import numpy as np
 from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
 
@@ -313,7 +314,7 @@ def set_args(parser):
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/attack/bank/data.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/bank/data.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -343,11 +344,13 @@ if __name__ == '__main__':
 
     # freeze_rand(args.seed)
     # 是否要规范化
-    save_path = "/data/yangjirui/vfl-tab-reconstruction/model/bank/defense/"
+    save_path = "./model/bank/defense/"
 
     list_of_args = []
 
-    protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
     # protectMethod = ['iso']
@@ -399,6 +402,24 @@ if __name__ == '__main__':
             args.base_mode = save_path + 'non' + '/best.pth.tar'
             args.decoder_mode = save_path + 'non' + "/data" + '/decoder.pth.tar'
             args.shadow_model = save_path + 'non' + "/data" + '/shadow.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            args.base_mode = save_path + 'vfldefender' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'vfldefender' + "/data" + '/decoder.pth.tar'
+            args.shadow_model = save_path + 'vfldefender' + "/data" + '/shadow.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
+            args.base_mode = save_path + 'PA_iMFL' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'PA_iMFL' + "/data" + '/decoder.pth.tar'
+            args.shadow_model = save_path + 'PA_iMFL' + "/data" + '/shadow.pth.tar'
             freeze_rand(args.seed)
             list_of_args.append(args)
 

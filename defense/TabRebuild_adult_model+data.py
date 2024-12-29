@@ -300,7 +300,7 @@ def set_args(parser):
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/attack/adult/data_radio.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/adult/data.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -334,14 +334,15 @@ if __name__ == '__main__':
         # 设置随机种子
     # freeze_rand(args.seed)
     # 是否要规范化
-    save_path = "/data/yangjirui/vfl-tab-reconstruction/model/adult/defense/"
+    save_path = "./model/adult/defense/"
 
 
     list_of_args = []
 
     # 列出所有的防御方法
     # protectMethod = ['non', 'max_norm', 'iso', 'dp']
-    protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
     # protectMethod = ['iso']
@@ -391,7 +392,22 @@ if __name__ == '__main__':
             args.decoder_mode = save_path + 'non' + "/model+data" + '/decoder.pth.tar'
             freeze_rand(args.seed)
             list_of_args.append(args)
-
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            args.base_mode = save_path + 'vfldefender' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'vfldefender' + "/model+data" + '/decoder.pth.tar'
+            freeze_rand(args.seed) 
+            list_of_args.append(args) 
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
+            args.base_mode = save_path + 'PA_iMFL' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'PA_iMFL' + "/model+data" + '/decoder.pth.tar'
+            freeze_rand(args.seed) 
+            list_of_args.append(args)
     # args.decoder_mode = decoder_mode + str(r)
     # args.shadow_model = shadow_model + str(r)
 

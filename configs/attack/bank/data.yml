@@ -3,16 +3,16 @@ name: adult-base
 
 
 # dir
-data_dir: /home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv
+data_dir: ./dataset/bank/bank-additional/bank-additional-full.csv
 #resume: ''
-#resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
+#resume: ./model/adult/v0/best.pth.tar
 #save: ''
-save: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/bank/v5/
-base_mode: /data/yangjirui/vfl-tab-reconstruction/model/bank/v5/best.pth.tar
-decoder_mode: /data/yangjirui/vfl-tab-reconstruction/model/bank/v5/attack-model/data_decoder120+.pth.tar
-#origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
-#rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
-shadow_model: /data/yangjirui/vfl-tab-reconstruction/model/bank/v5/attack-model/data_shadow_model120+.pth.tar
+save: ./rebuild-data/bank/v5/
+base_mode: ./model/bank/v5/best.pth.tar
+decoder_mode: ./model/bank/v5/attack-model/data_decoder120+.pth.tar
+#origin_data_output: ./rebuild-data/adult/v1/origin_data.csv
+#rebuild_data_output: ./rebuild-data/adult/v1/rebuild_data.csv
+shadow_model: ./model/bank/v5/attack-model/data_shadow_model120+.pth.tar
 
 # model
 report_freq: 10

@@ -9,6 +9,7 @@ from sklearn.utils import shuffle
 from tqdm import tqdm
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
 
@@ -268,7 +269,7 @@ def set_args(parser):
     parser.add_argument('--numloss', type=float, default=0.01, help="Recovery data negative number loss intensity")
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/attack/credit/nothing.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/attack/credit/nothing.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -291,13 +292,15 @@ if __name__ == '__main__':
         'numList': [i for i in range(39, 46)]
     }
 
-    save_path = "/data/yangjirui/vfl-tab-reconstruction/model/credit/defense/"
+    save_path = "./model/credit/defense/"
 
     list_of_args = []
 
     # 列出所有的防御方法
     # protectMethod = ['non', 'max_norm', 'iso', 'dp']
-    protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
     # protectMethod = ['iso']
@@ -347,6 +350,23 @@ if __name__ == '__main__':
             args.decoder_mode = save_path + 'non' + "/non" + '/decoder.pth.tar'
             freeze_rand(args.seed)
             list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            args.base_mode = save_path + 'vfldefender' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'vfldefender' + "/vfldefender" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
+            args.base_mode = save_path + 'PA_iMFL' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'PA_iMFL' + "/PA_iMFL" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+
 
     # args.decoder_mode = decoder_mode + str(r)
     # args.shadow_model = shadow_model + str(r)

@@ -186,10 +186,12 @@ def set_args(parser):
     parser.add_argument('--iso_ratio', type=float, default=0.01, help='iso defense ratio')
     parser.add_argument('--DP_ratio', type=float, default=0.01, help='iso defense ratio')
     
-    parser.add_argument('--tmax', type=float, default=1.00e-05, help='Maximum clipping threshold for gradients')
-    parser.add_argument('--tmin', type=float, default=-1.00e-05, help='Minimum clipping threshold for gradients')
-
-
+    # parser.add_argument('--tmax', type=float, default=1.00e-05, help='Maximum clipping threshold for gradients')
+    # parser.add_argument('--tmin', type=float, default=-1.00e-05, help='Minimum clipping threshold for gradients')
+    parser.add_argument('--Pmax', type=float, default=1.00e-05)
+    parser.add_argument('--Pmin', type=float, default=-1.00e-05)
+    parser.add_argument('--Pepsilon', type=float, default=0.1)
+    parser.add_argument('--Pgamma', type=float, default=0.07)
 
 
     # config file
@@ -241,9 +243,10 @@ if __name__ == '__main__':
     # protectMethod = ['non', 'iso', 'dp']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
-    protectMethod = ['vfldefender']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
 
-    # iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
     # iso_range = [1.0,1.5,2.0,2.5,3.0,3.5,4.0]
     # iso_range = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5]
@@ -251,7 +254,7 @@ if __name__ == '__main__':
 
     # dp_range = [0.1]
     # dp_range = [0.3]
-    # dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
     for method in protectMethod:
         if method == 'max_norm':
@@ -289,6 +292,12 @@ if __name__ == '__main__':
             parser = argparse.ArgumentParser("vflmodelnet")
             args = set_args(parser)
             args.save = save_path + 'vfldefender'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
             freeze_rand(args.seed)
             list_of_args.append(args)
 

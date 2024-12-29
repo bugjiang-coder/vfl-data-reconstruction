@@ -7,7 +7,7 @@ import wandb
 import copy
 import torch.nn.functional as F
 # from fedml_core.utils.utils import AverageMeter, gradient_masking, gradient_gaussian_noise_masking, marvell_g, backdoor_truepostive_rate, apply_noise_patch, gradient_compression, laplacian_noise_masking
-from fedml_core.utils.utils import AverageMeter, gaussian_noise_masking, smashed_data_masking, tabRebuildAcc, Similarity, reconstruct_input, reconstruct_input_count, VFLDefender
+from fedml_core.utils.utils import AverageMeter, gaussian_noise_masking, smashed_data_masking, tabRebuildAcc, Similarity, reconstruct_input, reconstruct_input_count, VFLDefender, PA_iMFL
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
@@ -265,6 +265,18 @@ class VFLTrainer(ModelTrainer):
                 tmax = getattr(args, 'tmax', 1.0)
                 tmin = getattr(args, 'tmin', -1.0)
                 grad_output_bottom_model_b = VFLDefender(grad_output_bottom_model_b, tmax, tmin)
+            
+            if hasattr(args, 'Pepsilon') and hasattr(args, 'Pgamma') and hasattr(args, 'Pmax') and hasattr(args, 'Pmin'):
+                Pepsilon = getattr(args, 'Pepsilon', 0.1)
+                Pgamma = getattr(args, 'Pgamma', 0.1)
+                Pmax = getattr(args, 'Pmax', 1.0)
+                Pmin = getattr(args, 'Pmin', -1.0)
+                # print(grad_output_bottom_model_b)
+                # print("PA_iMFL")
+                grad_output_bottom_model_b = PA_iMFL(grad_output_bottom_model_b, Pepsilon, Pgamma, Pmax, Pmin)
+                # print(grad_output_bottom_model_b)
+                # sys.exit(0)
+            
             
             # Theoretical reference:https://github.com/FuChong-cyber/label-inference-attacks
             # -- bottom model b backward/update--

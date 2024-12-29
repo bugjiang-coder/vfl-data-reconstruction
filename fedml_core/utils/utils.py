@@ -335,6 +335,47 @@ def VFLDefender(delta_o, tmax, tmin):
     # sys.exit(0)
     return delta_hat_o
 
+def PA_iMFL(grad, epsilon, gamma, tmax, tmin):
+    """
+    综合应用局部差分隐私 (LDP)、隐私增强子采样 (PAS)、梯度符号重置 (GSR) 的方法
+    :param grad: 原始梯度
+    :param epsilon: 差分隐私参数 epsilon
+    :param sensitivity: 拉普拉斯噪声的灵敏度
+    :param gamma: 子采样比例
+    :param tmax: 梯度符号重置的最大阈值
+    :param tmin: 梯度符号重置的最小阈值
+    :return: 应用隐私增强后的梯度
+    """
+    # sensitivity为拉普拉斯噪声的灵敏度，
+    sensitivity = tmax
+    
+    # Step 1: 差分隐私 (LDP)
+    noise = torch.distributions.Laplace(0, sensitivity / epsilon).sample(grad.shape).to(grad.device)
+    grad = grad + noise
+
+    # Step 2: 隐私增强子采样 (PAS)
+    num_to_keep = int(gamma * grad.numel())
+    scores = torch.abs(grad.view(-1))
+    top_indices = torch.topk(scores, num_to_keep).indices
+    mask = torch.zeros_like(grad.view(-1))
+    mask[top_indices] = 1
+    grad = (grad.view(-1) * mask).view_as(grad)
+
+    # Step 3: 梯度符号重置 (GSR)
+    grad = grad.clone()
+    mask_pos = grad > 0
+    mask_neg = grad < 0
+    num_pos = mask_pos.sum().item()
+    num_neg = mask_neg.sum().item()
+
+    p_pos = num_pos / (num_pos + num_neg)
+    rand_signs = torch.rand_like(grad)
+    rand_signs[mask_pos] = torch.where(rand_signs[mask_pos] < p_pos, 1.0, -1.0)
+    rand_signs[mask_neg] = torch.where(rand_signs[mask_neg] < (1 - p_pos), -1.0, 1.0)
+
+    grad = rand_signs * torch.clamp(grad, tmin, tmax)
+    return grad
+
 
 def gaussian_noise_masking_v2(g, ratio):
     device = g.device

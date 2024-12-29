@@ -329,7 +329,7 @@ if __name__ == '__main__':
 
 
 
-    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
+    save_path = "./model/cifar10/defense/"
 
 
     list_of_args = []
@@ -339,7 +339,8 @@ if __name__ == '__main__':
     # protectMethod = ['iso', 'dp']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
-    protectMethod = ['iso']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
 
     # iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
     iso_range = [0.01]
@@ -387,6 +388,22 @@ if __name__ == '__main__':
             args.decoder_mode = save_path + 'non' + "/model" + '/decoder.pth.tar'
             freeze_rand(args.seed)
             list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            args.base_mode = save_path + 'vfldefender' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'vfldefender' + "/model" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
+            args.base_mode = save_path + 'PA_iMFL' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'PA_iMFL' + "/model" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
 
     # args.decoder_mode = decoder_mode + str(r)
     # args.shadow_model = shadow_model + str(r)
@@ -397,6 +414,11 @@ if __name__ == '__main__':
         print(device)
         if not os.path.exists(arg.save):
             os.makedirs(arg.save)
+        # trainset = IndexedCIFAR10(root=arg.data_dir, train=True, download=True, transform=train_transform)
+        # testset = IndexedCIFAR10(root=arg.data_dir, train=False, download=True, transform=train_transform)
+        # freeze_rand(arg.seed)
+        # rebuild(train_data=trainset, test_data=testset, device=device, args=arg)
+        
         txt_name = f"saved_attack_model"
         savedStdout = sys.stdout
 

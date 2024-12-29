@@ -304,14 +304,15 @@ if __name__ == '__main__':
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
-    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
+    save_path = "./model/cifar10/defense/"
 
     list_of_args = []
 
     # 列出所有的防御方法
     # protectMethod = ['non', 'max_norm', 'iso', 'dp']
     # protectMethod = ['iso', 'dp']
-    protectMethod = ['dp']
+    # protectMethod = ['vfldefender']
+    protectMethod = ['PA_iMFL']
     # protectMethod = ['iso', 'dp']
     # protectMethod = ['iso']
 
@@ -360,6 +361,23 @@ if __name__ == '__main__':
             args.decoder_mode = save_path + 'non' + "/model+data" + '/decoder.pth.tar'
             freeze_rand(args.seed)
             list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            args.base_mode = save_path + 'vfldefender' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'vfldefender' + "/model+data" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'PA_iMFL':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'PA_iMFL'
+            args.base_mode = save_path + 'PA_iMFL' + '/best.pth.tar'
+            args.decoder_mode = save_path + 'PA_iMFL' + "/model+data" + '/decoder.pth.tar'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+
 
     # args.decoder_mode = decoder_mode + str(r)
     # args.shadow_model = shadow_model + str(r)

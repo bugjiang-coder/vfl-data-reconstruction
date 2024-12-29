@@ -3,18 +3,18 @@ name: cifar10
 
 
 # dir
-data_dir: /data/yangjirui/vfl/vfl-tab-reconstruction/dataset/cifar10/
+data_dir: ./dataset/cifar10/
 #resume: ''
 #resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
 #save: ''
-save: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/
-base_mode: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/best.pth.tar
-# decoder_mode: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/attack-model/data_decoder120.pth.tar
-decoder_mode: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/attack-model/data_decoder120v2.pth.tar
+save: ./model/cifar10/v6/
+base_mode: ./model/cifar10/v6/best.pth.tar
+# decoder_mode: ./model/cifar10/v6/attack-model/data_decoder120.pth.tar
+decoder_mode: ./model/cifar10/v6/attack-model/data_decoder120v2.pth.tar
 #origin_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/origin_data.csv
 #rebuild_data_output: /data/yangjirui/vfl-tab-reconstruction/rebuild-data/adult/v1/rebuild_data.csv
-# shadow_model: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/attack-model/data_shadow_model120.pth.tar
-shadow_model: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/attack-model/data_shadow_model120v2.pth.tar
+# shadow_model: ./model/cifar10/v6/attack-model/data_shadow_model120.pth.tar
+shadow_model: ./model/cifar10/v6/attack-model/data_shadow_model120v2.pth.tar
 
 # model
 report_freq: 10
