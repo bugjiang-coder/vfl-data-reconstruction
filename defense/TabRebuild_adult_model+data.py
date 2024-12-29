@@ -9,6 +9,7 @@ from tqdm import tqdm
 from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
 

@@ -11,6 +11,7 @@ import torchvision.transforms as transforms
 from pytorch_msssim import ssim
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 
