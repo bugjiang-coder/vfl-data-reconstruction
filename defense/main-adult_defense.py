@@ -9,6 +9,7 @@ from sklearn.utils import shuffle
 from multiprocessing import Pool
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 sys.path.append("/home/yangjirui/data/vfl-tab-reconstruction")
 # 加入模块的搜索路径
 
@@ -67,7 +68,7 @@ def run_experiment(device, args):
 
     best_auc = 0.0
 
-    for epoch in range(50):
+    for epoch in range(13):
 
         logging.info('epoch %d args.lr %e ', epoch, args.lr)
 
@@ -132,9 +133,13 @@ def set_args(parser):
 
     parser.add_argument('--iso_ratio', type=float, default=0.01, help='iso defense ratio')
     parser.add_argument('--DP_ratio', type=float, default=0.01, help='iso defense ratio')
+    
+    parser.add_argument('--tmax', type=float, default=1.00e-05, help='Maximum clipping threshold for gradients')
+    parser.add_argument('--tmin', type=float, default=-1.00e-05, help='Minimum clipping threshold for gradients')
+
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/train/adult_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/train/adult_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -151,15 +156,15 @@ def run(args):
     if not os.path.exists(args.save):
         os.makedirs(args.save)
 
-    txt_name = f"saved_process_data"
-    savedStdout = sys.stdout
-    with open(args.save + '/' + txt_name + '.txt', 'a') as file:
-        sys.stdout = file
-        run_experiment(device=device, args=args)
-        sys.stdout = savedStdout
-    print("################################ end experiment ############################")
+    # txt_name = f"saved_process_data"
+    # savedStdout = sys.stdout
+    # with open(args.save + '/' + txt_name + '.txt', 'a') as file:
+    #     sys.stdout = file
+    #     run_experiment(device=device, args=args)
+    #     sys.stdout = savedStdout
+    # print("################################ end experiment ############################")
 
-    # run_experiment(device=device, args=args)
+    run_experiment(device=device, args=args)
 
 
 if __name__ == '__main__':
@@ -169,19 +174,19 @@ if __name__ == '__main__':
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     torch.cuda.set_device(1)
 
-    save_path = "/data/yangjirui/vfl-tab-reconstruction/model/adult/defense/"
+    save_path = "./model/adult/defense/"
 
 
     list_of_args = []
 
     # 列出所有的防御方法
     # protectMethod = ['non', 'max_norm', 'iso', 'dp']
-    protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['non', 'iso', 'dp']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
-    # protectMethod = ['iso']
+    protectMethod = ['vfldefender']
 
-    iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    # iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
     # iso_range = [1.0,1.5,2.0,2.5,3.0,3.5,4.0]
     # iso_range = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5]
@@ -189,7 +194,7 @@ if __name__ == '__main__':
 
     # dp_range = [0.1]
     # dp_range = [0.3]
-    dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    # dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
     for method in protectMethod:
         if method == 'max_norm':
@@ -221,6 +226,12 @@ if __name__ == '__main__':
             parser = argparse.ArgumentParser("vflmodelnet")
             args = set_args(parser)
             args.save = save_path + 'non'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
             freeze_rand(args.seed)
             list_of_args.append(args)
 

@@ -3,15 +3,15 @@ name: bank-base
 
 
 # dir
-data_dir: /home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv
+data_dir: ./dataset/bank/bank-additional/bank-additional-full.csv
 #data_dir: /home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank_cleaned.csv
 #resume: ''
 
 #resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v0/best.pth.tar
-resume: /data/yangjirui/vfl-tab-reconstruction/model/bank/v5/best.pth.tar
+resume: ./model/bank/base/v0/best.pth.tar
 #save: /data/yangjirui/vfl-tab-reconstruction/model/bank/v1/
 # 从V3开始，正式进入论文的实验阶段
-save: /data/yangjirui/vfl-tab-reconstruction/model/bank/v5/
+save: ./model/bank/base/v0/
 
 # model
 report_freq: 10

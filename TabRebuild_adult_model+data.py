@@ -272,7 +272,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("TabRebuild")
     parser.add_argument('--multiple', action='store_true', help='Whether to conduct multiple experiments')
     parser.add_argument('--name', type=str, default='decoder-rebuild-2layer-all-data', help='experiment name')
-    parser.add_argument('--data_dir', default='/home/yangjirui/VFL/feature-infer-workspace/dataset/adult/adult.data',
+    parser.add_argument('--data_dir', default='./dataset/adult/adult.data',
                         help='location of the data corpus')
     parser.add_argument('--batch_size', type=int, default=1, help='batch size')
     parser.add_argument('--lr', type=float, default=0.001, help='init learning rate')

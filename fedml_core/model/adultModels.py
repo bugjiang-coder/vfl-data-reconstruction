@@ -94,6 +94,63 @@ class BottomModel(nn.Module):
 
     def getLayerNum(self):
         return len(self.local_model)
+    
+class BottomModelGrads(nn.Module):
+    def __init__(self, input_dim, output_dim=100):
+        super(BottomModelGrads, self).__init__()
+        self.local_model = nn.Sequential(
+            nn.Linear(input_dim, 300),
+            nn.LeakyReLU(),
+            nn.Linear(300, 100),
+            nn.LeakyReLU(),
+            nn.Linear(100, output_dim),
+        )
+        self.apply(weights_init)
+        self.param_grads = {}  # 用于存储参数梯度
+
+    def forward(self, input):
+        return self.local_model(input)
+
+    def getLayerOutput(self, x, targetLayer):
+        # 获取指定层的输出
+        return self.local_model[:targetLayer](x)
+
+    def getLayerNum(self):
+        # 获取模型的总层数
+        return len(self.local_model)
+
+    def capture_gradients(self):
+        """
+        捕获所有参数的梯度并存储在 self.param_grads 中
+        """
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                self.param_grads[name] = param.grad.clone().detach()
+
+class LeakageEnabledModel(BottomModelGrads):
+    def __init__(self, input_dim, output_dim=100):
+        super(LeakageEnabledModel, self).__init__(input_dim, output_dim)
+        self.setup_trap_weights()
+
+    def setup_trap_weights(self):
+        """
+        Initialize the first FC layer with trap weights and biases to facilitate leakage.
+        """
+        fc1 = self.local_model[0]  # First Linear layer
+        num_neurons = fc1.out_features
+        input_dim = fc1.in_features
+
+        # Initialize weights: half positive, half negative with varying magnitudes
+        with torch.no_grad():
+            half = num_neurons // 2
+            fc1.weight[:half].fill_(1.0 / input_dim)
+            fc1.weight[half:].fill_(-2.0 / input_dim)  # Larger magnitude for negatives
+            
+            # Initialize biases to create bins
+            # Assuming input features are normalized between 0 and 1
+            # Biases set to negative values to prevent ReLU activation unless input is sufficient
+            bias_values = torch.linspace(-1.0, -0.5, steps=num_neurons)
+            fc1.bias.copy_(bias_values)
 
 
 class TopModel(nn.Module):

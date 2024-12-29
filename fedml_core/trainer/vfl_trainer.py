@@ -4,11 +4,13 @@ from torch import nn
 from sklearn.metrics import accuracy_score, roc_auc_score, precision_recall_fscore_support, classification_report, confusion_matrix, roc_curve
 import numpy as np
 import wandb
+import copy
 import torch.nn.functional as F
 # from fedml_core.utils.utils import AverageMeter, gradient_masking, gradient_gaussian_noise_masking, marvell_g, backdoor_truepostive_rate, apply_noise_patch, gradient_compression, laplacian_noise_masking
-from fedml_core.utils.utils import AverageMeter, gaussian_noise_masking, smashed_data_masking
+from fedml_core.utils.utils import AverageMeter, gaussian_noise_masking, smashed_data_masking, tabRebuildAcc, Similarity, reconstruct_input, reconstruct_input_count, VFLDefender
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import normalize
+from tqdm import tqdm
 
 
 from .model_trainer import ModelTrainer
@@ -72,6 +74,82 @@ def split_data(data, args):
         raise Exception('Unknown dataset name!')
     return x_a, x_b
 
+class InvertingGradientsAttack:
+    def __init__(self, model, criterion, device, input_dim):
+        """
+        初始化攻击类
+        :param model: 目标 BottomModel
+        :param criterion: 损失函数
+        :param device: 设备（CPU或GPU）
+        :param input_dim: 输入数据维度
+        :param target_output: 真实标签，用于计算损失
+        """
+        self.model = model
+        self.criterion = criterion
+        self.device = device
+        self.input_dim = input_dim
+        # self.target_output = target_output
+
+    def invert(self, observed_grads, target_output, num_iterations=1000, lr=0.1):
+        """
+        执行输入重建
+        :param observed_grads: 目标模型参数的梯度字典
+        :param num_iterations: 优化迭代次数
+        :param lr: 学习率
+        :return: 重建的输入张量
+        """
+        # 确保 target_output 在正确的设备上，并且需要梯度
+        target_output = target_output.detach().clone().to(self.device)
+        # if not target_output.requires_grad:
+        # target_output.requires_grad_(False)
+        # print(self.input_dim)
+        # 初始化一个伪输入张量，requires_grad=True 以便优化
+        # dummy_input = torch.randn(self.input_dim, device=self.device, requires_grad=True)
+        # 初始化为0
+        dummy_input = torch.zeros(self.input_dim, device=self.device, requires_grad=True)
+
+        optimizer = torch.optim.Adam([dummy_input], lr=lr)
+        # 使用sgd优化器
+        # optimizer = torch.optim.SGD([dummy_input], lr=lr)
+        
+        loss_fn = nn.MSELoss()
+
+        for i in range(num_iterations):
+            optimizer.zero_grad()
+            output = self.model(dummy_input)
+            loss = self.criterion(output, target_output)
+            loss.backward()
+            # 使用 torch.autograd.grad 计算当前梯度
+            # current_grads = torch.autograd.grad(loss, self.model.parameters(), create_graph=False)
+
+
+            # # 收集当前伪输入生成的参数梯度
+            current_grads = {}
+            for name, param in self.model.named_parameters():
+                if param.grad is not None:
+                    current_grads[name] = param.grad.clone().detach()
+            # print(observed_grads)
+            # print(observed_grads.keys())
+            # print(current_grads)
+            # print(current_grads.keys())
+
+            # 计算伪梯度与观察到梯度的差异
+            total_loss = 0.0
+            for name in observed_grads:
+                if name in current_grads:
+                    # 确保 observed_grads 中的梯度张量可导且需要梯度
+                    if not observed_grads[name].requires_grad:
+                        observed_grads[name].requires_grad_(True)
+                    total_loss += loss_fn(current_grads[name], observed_grads[name])
+
+            # 反向传播以优化伪输入
+            total_loss.backward()
+            optimizer.step()
+
+            # if i % 1 == 0 or i == num_iterations - 1:
+            #     print(f"\tIteration {i+1}/{num_iterations}, Gradient Loss: {total_loss.item()}")
+
+        return dummy_input.detach()
 
 class VFLTrainer(ModelTrainer):
     def update_model(self, new_model):
@@ -141,10 +219,13 @@ class VFLTrainer(ModelTrainer):
             # output_tensor_bottom_model_b = output_tensor_bottom_model_b.to(device)
 
             # 对smashed data扰动
-            if args.max_norm:
+            # if hasattr(args, 'DP') and args.DP:
+            # if args.max_norm:
+            if hasattr(args, 'max_norm') and args.max_norm:
                 output_tensor_bottom_model_b = smashed_data_masking(output_tensor_bottom_model_b)
             # 增加iso gaussian noise
-            if args.iso:
+            # if args.iso:
+            if hasattr(args, 'iso') and args.iso:
                 output_tensor_bottom_model_b = gaussian_noise_masking(output_tensor_bottom_model_b,
                                                                              ratio=args.iso_ratio)
             # test
@@ -171,10 +252,20 @@ class VFLTrainer(ModelTrainer):
             grad_output_bottom_model_b = input_tensor_top_model_b.grad
 
             # 差分隐私防御方法
-            if args.DP:
+            # if args.DP:
+            if hasattr(args, 'DP') and args.DP:
                 grad_output_bottom_model_b = gaussian_noise_masking(grad_output_bottom_model_b,
-                                                                             ratio=args.DP_ratio)
+                                                                      ratio=args.DP_ratio)
 
+            # 合并所有 δo（假设 δo 是针对每个底层模型的）
+            # 应用 VFLDefender 到每个 δo
+            # perturbed_grad_a = VFLDefender(grad_output_bottom_model_a, tmax, tmin)
+                # 提取 VFLDefender 的参数
+            if hasattr(args, 'tmax') and hasattr(args, 'tmin'):
+                tmax = getattr(args, 'tmax', 1.0)
+                tmin = getattr(args, 'tmin', -1.0)
+                grad_output_bottom_model_b = VFLDefender(grad_output_bottom_model_b, tmax, tmin)
+            
             # Theoretical reference:https://github.com/FuChong-cyber/label-inference-attacks
             # -- bottom model b backward/update--
             _ = update_model_one_batch(optimizer=optimizer_list[1],
@@ -199,6 +290,337 @@ class VFLTrainer(ModelTrainer):
         # epoch_loss.append(sum(batch_loss) / len(batch_loss))
 
         return np.mean(epoch_loss)
+    
+    def train_GI(self, train_data, criterion, bottom_criterion, optimizer_list, device, tab, args):
+
+        model_list = self.bottom_model_list + [self.top_model]
+
+        model_list = [model.to(device) for model in model_list]
+        model_list = [model.train() for model in model_list]
+
+        # train and update
+        epoch_loss = []
+        acc_list = []
+        onehot_acc_list = []
+        num_acc_list = []
+        similarity_list = []
+        euclidean_dist_list = []
+        
+
+
+        for step, (trn_X, trn_y) in  tqdm(enumerate(train_data), total=len(train_data)):
+
+            trn_X = [x.float().to(device) for x in trn_X]
+            target = trn_y.float().to(device)
+
+            #input_tensor_top_model_a = torch.tensor([], requires_grad=True)
+            #input_tensor_top_model_b = torch.tensor([], requires_grad=True)
+
+            # bottom model B
+            output_tensor_bottom_model_b = model_list[1](trn_X[1])
+            # bottom model A
+            output_tensor_bottom_model_a = model_list[0](trn_X[0])
+
+            # output_tensor_bottom_model_b = output_tensor_bottom_model_b.to(device)
+
+            # 对smashed data扰动
+            # if hasattr(args, 'DP') and args.DP:
+            # if args.max_norm:
+            if hasattr(args, 'max_norm') and args.max_norm:
+                output_tensor_bottom_model_b = smashed_data_masking(output_tensor_bottom_model_b)
+            # 增加iso gaussian noise
+            # if args.iso:
+            if hasattr(args, 'iso') and args.iso:
+                output_tensor_bottom_model_b = gaussian_noise_masking(output_tensor_bottom_model_b,
+                                                                             ratio=args.iso_ratio)
+
+            input_tensor_top_model_a = output_tensor_bottom_model_a.detach().clone()
+            input_tensor_top_model_b = output_tensor_bottom_model_b.detach().clone()
+            input_tensor_top_model_a.requires_grad_(True)
+            input_tensor_top_model_b.requires_grad_(True)
+
+            # top model
+            output = model_list[2](input_tensor_top_model_a, input_tensor_top_model_b)
+            # --top model backward/update--
+            loss = update_model_one_batch(optimizer=optimizer_list[2],
+                                                    model=model_list[2],
+                                                    output=output,
+                                                    batch_target=target,
+                                                    loss_func=criterion,
+                                                    args=args)
+
+            # read grad of: input of top model(also output of bottom models), which will be used as bottom model's target
+            grad_output_bottom_model_a = input_tensor_top_model_a.grad
+            grad_output_bottom_model_b = input_tensor_top_model_b.grad
+
+            # 差分隐私防御方法
+            # if args.DP:
+            if hasattr(args, 'DP') and args.DP:
+                grad_output_bottom_model_b = gaussian_noise_masking(grad_output_bottom_model_b,
+                                                                             ratio=args.DP_ratio)
+
+            # Theoretical reference:https://github.com/FuChong-cyber/label-inference-attacks
+            # -- bottom model b backward/update--
+            _ = update_model_one_batch(optimizer=optimizer_list[1],
+                                                    model=model_list[1],
+                                                    output=output_tensor_bottom_model_b,
+                                                    batch_target=grad_output_bottom_model_b,
+                                                    loss_func=bottom_criterion,
+                                                    args=args)
+
+            # -- bottom model a backward/update--
+            _ = update_model_one_batch(optimizer=optimizer_list[0],
+                                       model=model_list[0],
+                                       output=output_tensor_bottom_model_a,
+                                       batch_target=grad_output_bottom_model_a,
+                                       loss_func=bottom_criterion,
+                                       args=args)
+            
+            # 捕获目标 BottomModel 的参数梯度
+            model_list[1].capture_gradients()
+            observed_grads = model_list[1].param_grads.copy()
+            # test
+            # output_tensor_bottom_model_a = torch.zeros_like(output_tensor_bottom_model_a)
+            # output_tensor_bottom_model_b = torch.zeros_like(output_tensor_bottom_model_b)
+            # copy_model = copy.deepcopy(model_list[1])
+            attack = InvertingGradientsAttack(
+                model=model_list[1],
+                criterion=criterion,
+                device=device,
+                input_dim=trn_X[1].shape
+            )
+            
+            # print(f"Performing inversion attack on BottomModel B")
+            reconstructed_input = attack.invert(observed_grads, input_tensor_top_model_b, num_iterations=200, lr=0.1)
+            acc, onehot_acc, num_acc = tabRebuildAcc(trn_X[1], reconstructed_input, tab)
+            similarity = Similarity(reconstructed_input, trn_X[1])
+            euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(reconstructed_input, trn_X[1])).item()
+        
+            # print(f"Reconstructed Input for BottomModel B at epoch {epoch}: {reconstructed_input}")
+
+            # logging.info('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            #     epoch, (batch_idx + 1) * self.args.batch_size, len(self.local_training_data) * self.args.batch_size,
+            #            100. * (batch_idx + 1) / len(self.local_training_data), loss.item()))
+            epoch_loss.append(loss.item())
+            acc_list.append(acc)
+            onehot_acc_list.append(onehot_acc)
+            num_acc_list.append(num_acc)
+            similarity_list.append(similarity)
+            euclidean_dist_list.append(euclidean_dist)
+        # epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+        return np.mean(epoch_loss),np.mean(acc_list), np.mean(onehot_acc_list),np.mean(num_acc_list),np.mean(similarity_list),np.mean(euclidean_dist_list)
+
+    def train_LLL(self, train_data, criterion, bottom_criterion, optimizer_list, device, tab, args):
+
+        model_list = self.bottom_model_list + [self.top_model]
+
+        model_list = [model.to(device) for model in model_list]
+        model_list = [model.train() for model in model_list]
+
+        # train and update
+        epoch_loss = []
+        acc_list = []
+        onehot_acc_list = []
+        num_acc_list = []
+        similarity_list = []
+        euclidean_dist_list = []
+        
+
+
+        for step, (trn_X, trn_y) in  tqdm(enumerate(train_data), total=len(train_data)):
+
+            trn_X = [x.float().to(device) for x in trn_X]
+            target = trn_y.float().to(device)
+
+            #input_tensor_top_model_a = torch.tensor([], requires_grad=True)
+            #input_tensor_top_model_b = torch.tensor([], requires_grad=True)
+
+            # bottom model B
+            output_tensor_bottom_model_b = model_list[1](trn_X[1])
+            # bottom model A
+            output_tensor_bottom_model_a = model_list[0](trn_X[0])
+
+            # output_tensor_bottom_model_b = output_tensor_bottom_model_b.to(device)
+
+            # 对smashed data扰动
+            # if hasattr(args, 'DP') and args.DP:
+            # if args.max_norm:
+            if hasattr(args, 'max_norm') and args.max_norm:
+                output_tensor_bottom_model_b = smashed_data_masking(output_tensor_bottom_model_b)
+            # 增加iso gaussian noise
+            # if args.iso:
+            if hasattr(args, 'iso') and args.iso:
+                output_tensor_bottom_model_b = gaussian_noise_masking(output_tensor_bottom_model_b,
+                                                                             ratio=args.iso_ratio)
+
+            input_tensor_top_model_a = output_tensor_bottom_model_a.detach().clone()
+            input_tensor_top_model_b = output_tensor_bottom_model_b.detach().clone()
+            input_tensor_top_model_a.requires_grad_(True)
+            input_tensor_top_model_b.requires_grad_(True)
+
+            # top model
+            output = model_list[2](input_tensor_top_model_a, input_tensor_top_model_b)
+            # --top model backward/update--
+            loss = update_model_one_batch(optimizer=optimizer_list[2],
+                                                    model=model_list[2],
+                                                    output=output,
+                                                    batch_target=target,
+                                                    loss_func=criterion,
+                                                    args=args)
+
+            # read grad of: input of top model(also output of bottom models), which will be used as bottom model's target
+            grad_output_bottom_model_a = input_tensor_top_model_a.grad
+            grad_output_bottom_model_b = input_tensor_top_model_b.grad
+
+            # 差分隐私防御方法
+            # if args.DP:
+            if hasattr(args, 'DP') and args.DP:
+                grad_output_bottom_model_b = gaussian_noise_masking(grad_output_bottom_model_b,
+                                                                             ratio=args.DP_ratio)
+
+            # Theoretical reference:https://github.com/FuChong-cyber/label-inference-attacks
+            # -- bottom model b backward/update--
+            _ = update_model_one_batch(optimizer=optimizer_list[1],
+                                                    model=model_list[1],
+                                                    output=output_tensor_bottom_model_b,
+                                                    batch_target=grad_output_bottom_model_b,
+                                                    loss_func=bottom_criterion,
+                                                    args=args)
+
+            # -- bottom model a backward/update--
+            _ = update_model_one_batch(optimizer=optimizer_list[0],
+                                       model=model_list[0],
+                                       output=output_tensor_bottom_model_a,
+                                       batch_target=grad_output_bottom_model_a,
+                                       loss_func=bottom_criterion,
+                                       args=args)
+            
+            # 捕获目标 BottomModel 的参数梯度
+            model_list[1].capture_gradients()
+            reconstructed = reconstruct_input(model_list[1], target_layer=0)  # Assuming first FC layer is target
+            # if reconstructed is not None:
+            #     print("Reconstructed Input:", reconstructed)
+            #     # print("Original Input:", input_data)
+            # else:
+            #     print("Reconstruction failed due to multiple activations.")
+            
+            # print("Reconstructed Input:", reconstructed.shape)
+            # print("Original Input:", trn_X[1].shape)
+            # sys.exit(0)
+            reconstructed = reconstructed.unsqueeze(0)
+            acc, onehot_acc, num_acc = tabRebuildAcc(trn_X[1], reconstructed, tab)
+            similarity = Similarity(reconstructed, trn_X[1])
+            euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(reconstructed, trn_X[1])).item()
+        
+            # print(f"Reconstructed Input for BottomModel B at epoch {epoch}: {reconstructed_input}")
+
+            # logging.info('Update Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            #     epoch, (batch_idx + 1) * self.args.batch_size, len(self.local_training_data) * self.args.batch_size,
+            #            100. * (batch_idx + 1) / len(self.local_training_data), loss.item()))
+            epoch_loss.append(loss.item())
+            acc_list.append(acc)
+            onehot_acc_list.append(onehot_acc)
+            num_acc_list.append(num_acc)
+            similarity_list.append(similarity)
+            euclidean_dist_list.append(euclidean_dist)
+        # epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+        return np.mean(epoch_loss),np.mean(acc_list), np.mean(onehot_acc_list),np.mean(num_acc_list),np.mean(similarity_list),np.mean(euclidean_dist_list)
+
+    def train_LLL_count(self, train_data, criterion, bottom_criterion, optimizer_list, device, tab, args):
+
+        model_list = self.bottom_model_list + [self.top_model]
+
+        model_list = [model.to(device) for model in model_list]
+        model_list = [model.train() for model in model_list]
+
+        # train and update
+        epoch_loss = []
+        acc_list = []
+        onehot_acc_list = []
+        num_acc_list = []
+        similarity_list = []
+        euclidean_dist_list = []
+        
+        all_num, reconstructed_num = 0, 0
+
+        for step, (trn_X, trn_y) in  tqdm(enumerate(train_data), total=len(train_data)):
+
+            trn_X = [x.float().to(device) for x in trn_X]
+            target = trn_y.float().to(device)
+
+            #input_tensor_top_model_a = torch.tensor([], requires_grad=True)
+            #input_tensor_top_model_b = torch.tensor([], requires_grad=True)
+
+            # bottom model B
+            output_tensor_bottom_model_b = model_list[1](trn_X[1])
+            # bottom model A
+            output_tensor_bottom_model_a = model_list[0](trn_X[0])
+
+            # output_tensor_bottom_model_b = output_tensor_bottom_model_b.to(device)
+
+            # 对smashed data扰动
+            # if hasattr(args, 'DP') and args.DP:
+            # if args.max_norm:
+            if hasattr(args, 'max_norm') and args.max_norm:
+                output_tensor_bottom_model_b = smashed_data_masking(output_tensor_bottom_model_b)
+            # 增加iso gaussian noise
+            # if args.iso:
+            if hasattr(args, 'iso') and args.iso:
+                output_tensor_bottom_model_b = gaussian_noise_masking(output_tensor_bottom_model_b,
+                                                                             ratio=args.iso_ratio)
+
+            input_tensor_top_model_a = output_tensor_bottom_model_a.detach().clone()
+            input_tensor_top_model_b = output_tensor_bottom_model_b.detach().clone()
+            input_tensor_top_model_a.requires_grad_(True)
+            input_tensor_top_model_b.requires_grad_(True)
+
+            # top model
+            output = model_list[2](input_tensor_top_model_a, input_tensor_top_model_b)
+            # --top model backward/update--
+            loss = update_model_one_batch(optimizer=optimizer_list[2],
+                                                    model=model_list[2],
+                                                    output=output,
+                                                    batch_target=target,
+                                                    loss_func=criterion,
+                                                    args=args)
+
+            # read grad of: input of top model(also output of bottom models), which will be used as bottom model's target
+            grad_output_bottom_model_a = input_tensor_top_model_a.grad
+            grad_output_bottom_model_b = input_tensor_top_model_b.grad
+
+            # 差分隐私防御方法
+            # if args.DP:
+            if hasattr(args, 'DP') and args.DP:
+                grad_output_bottom_model_b = gaussian_noise_masking(grad_output_bottom_model_b,
+                                                                             ratio=args.DP_ratio)
+
+            # Theoretical reference:https://github.com/FuChong-cyber/label-inference-attacks
+            # -- bottom model b backward/update--
+            _ = update_model_one_batch(optimizer=optimizer_list[1],
+                                                    model=model_list[1],
+                                                    output=output_tensor_bottom_model_b,
+                                                    batch_target=grad_output_bottom_model_b,
+                                                    loss_func=bottom_criterion,
+                                                    args=args)
+
+            # -- bottom model a backward/update--
+            _ = update_model_one_batch(optimizer=optimizer_list[0],
+                                       model=model_list[0],
+                                       output=output_tensor_bottom_model_a,
+                                       batch_target=grad_output_bottom_model_a,
+                                       loss_func=bottom_criterion,
+                                       args=args)
+            
+            # 捕获目标 BottomModel 的参数梯度
+            model_list[1].capture_gradients()
+            reconstructed_num += reconstruct_input_count(model_list[1], target_layer=0) 
+            all_num += trn_X[1].shape[0]
+            
+        print("all_num:", all_num, "reconstructed_num:", reconstructed_num)
+        return reconstructed_num/all_num
+
 
     def train_single_model(self, train_data, criterion, bottom_criterion, optimizer_list, bottom_model_index=None, top_model=False, device=None, args=None):
 
@@ -948,8 +1370,11 @@ class VFLTrainer(ModelTrainer):
 
         traget_list = np.concatenate(target_list, axis=0)
         pred_list = np.concatenate(pred_list, axis=0)
+        
+        # 使用 numpy.nan_to_num() 函数将 NaN 值替换为 0
+        pred_list_cleaned = np.nan_to_num(pred_list)
 
-        auc =  roc_auc_score(traget_list, pred_list)
+        auc =  roc_auc_score(traget_list, pred_list_cleaned)
         return Loss.avg, ACC.avg, auc, Precision.avg, Recall.avg, F1.avg
 
     def train_narcissus(self, train_data, criterion, bottom_criterion, optimizer_list, device, args, delta, poisoned_indices):

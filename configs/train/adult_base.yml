@@ -3,11 +3,12 @@ name: adult-base
 
 
 # dir
-data_dir: ../dataset/adult/adult.data
+data_dir: ./dataset/adult/adult.data
 #resume: ''
-resume: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/best.pth.tar
+# /home/yangjirui/data/VFL/vfl-data-reconstuction/PR/vfl-data-reconstruction/model/adult/base/v0/best.pth.tar
+resume: ./model/adult/base/v0/best.pth.tar
 # 从V3开始，正式进入论文的实验阶段
-save: /data/yangjirui/vfl-tab-reconstruction/model/adult/v6/
+save: ./model/adult/base/v0/
 
 # model
 report_freq: 10

@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 
 from fedml_core.preprocess.bank.preprocess_bank import preprocess
@@ -132,7 +133,7 @@ if __name__ == '__main__':
     print("################################ Prepare Data ############################")
 
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     parser = argparse.ArgumentParser("vflmodelnet")
     parser.add_argument('--data_dir', default='/home/yangjirui/data/vfl-tab-reconstruction/dataset/bank/bank-additional/bank-additional-full.csv',
@@ -163,7 +164,7 @@ if __name__ == '__main__':
                         help='path to save checkpoint (default: none)')
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/train/bank_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/train/bank_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)

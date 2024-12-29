@@ -159,6 +159,103 @@ class criteo_dataset(Dataset):
     def __getitem__(self, index):
         return [torch.from_numpy(self.Xa_train[index]),torch.from_numpy(self.Xb_train[index])], torch.from_numpy(self.y_train[index])
 
+def reconstruct_input(model, target_layer: int):
+    """
+    Reconstruct input from gradients at the specified target layer.
+    
+    Args:
+        model (LeakageEnabledModel): The model with captured gradients.
+        target_layer (int): The layer index where leakage occurs.
+    
+    Returns:
+        Reconstructed input tensor.
+    """
+    # Assuming target_layer corresponds to a Linear layer
+    # and only one neuron is activated by a single input
+    fc_layer = model.local_model[target_layer]
+    
+    # Iterate over parameters to get gradients
+    weight_grad = None
+    bias_grad = None
+    for name, grad in model.param_grads.items():
+        if f"{target_layer}.weight" in name:
+            weight_grad = grad  # Shape: [out_features, in_features]
+        if f"{target_layer}.bias" in name:
+            bias_grad = grad  # Shape: [out_features]
+    
+    if weight_grad is None or bias_grad is None:
+        raise ValueError("Gradients for the target layer not found.")
+    
+    # Find the activated neuron
+    # 这里大概是梯度有数值，我们就认为这个神经元被激活了？没有被relu给设置为0
+    activated_neurons = torch.nonzero(bias_grad < 0, as_tuple=False).squeeze()
+    if activated_neurons.ndimension() == 0:
+        activated_neurons = activated_neurons.unsqueeze(0)
+    
+    # print(f"Activated neurons: {activated_neurons.numel()}")
+    # For simplicity, assume only one neuron is activated
+    # if activated_neurons.numel() != 1:
+    #     print("Multiple neurons activated; exact reconstruction not possible.")
+    #     return None
+    # print("Activated neurons: ", activated_neurons)
+    i = activated_neurons[0].item()
+    
+    # Compute the input using Equation (2): xi = (dL/dWi) / (dL/dBi)
+    delta_Wi = weight_grad[i]
+    delta_Bi = bias_grad[i]
+    
+    reconstructed_input = delta_Wi / delta_Bi
+    return reconstructed_input
+
+def reconstruct_input_count(model, target_layer: int):
+    """
+    Reconstruct input from gradients at the specified target layer.
+    
+    Args:
+        model (LeakageEnabledModel): The model with captured gradients.
+        target_layer (int): The layer index where leakage occurs.
+    
+    Returns:
+        Reconstructed input tensor.
+    """
+    # Assuming target_layer corresponds to a Linear layer
+    # and only one neuron is activated by a single input
+    fc_layer = model.local_model[target_layer]
+    
+    
+    
+    # Iterate over parameters to get gradients
+    weight_grad = None
+    bias_grad = None
+    for name, grad in model.param_grads.items():
+        if f"{target_layer}.weight" in name:
+            weight_grad = grad  # Shape: [out_features, in_features]
+        if f"{target_layer}.bias" in name:
+            bias_grad = grad  # Shape: [out_features]
+    
+    if weight_grad is None or bias_grad is None:
+        raise ValueError("Gradients for the target layer not found.")
+    
+    # Find the activated neuron
+    # 这里大概是梯度有数值，我们就认为这个神经元被激活了？没有被relu给设置为0
+    activated_neurons = torch.nonzero(bias_grad != 0, as_tuple=False).squeeze()
+    if activated_neurons.ndimension() == 0:
+        activated_neurons = activated_neurons.unsqueeze(0)
+
+    reconstructed_num = 0
+    # i = activated_neurons[0].item()
+    for index in activated_neurons:
+        i = index.item()
+        # Compute the input using Equation (2): xi = (dL/dWi) / (dL/dBi)
+        delta_Wi = weight_grad[i]
+        delta_Bi = bias_grad[i]
+        reconstructed_input = delta_Wi / delta_Bi
+        
+        # 如果 reconstructed_input 中有 0和1，就认为是重建成果
+        if torch.any(reconstructed_input == 0) and torch.any(reconstructed_input == 1):
+            reconstructed_num += 1
+        
+    return reconstructed_num
 
 
 def Similarity(x, y):
@@ -199,6 +296,45 @@ def gaussian_noise_masking(g, ratio):
     gaussian_noise = torch.normal(mean=0.0, std=gaussian_std.item(), size=g.shape).to(device)
     # res = [g+gaussian_noise]
     return g+gaussian_noise
+
+def VFLDefender(delta_o, tmax, tmin):
+    """
+    Apply VFLDefender gradient perturbation to delta_o.
+
+    Args:
+        delta_o (torch.Tensor): Original gradients of the output layer (δo).
+        tmax (float): Maximum clipping threshold.
+        tmin (float): Minimum clipping threshold.
+
+    Returns:
+        torch.Tensor: Perturbed gradients (δ̂o).
+    """
+    # print("delta_o", delta_o)
+    # sys.exit(0)
+    # 1. Clipping
+    delta_o_clipped = torch.clamp(delta_o, min=tmin, max=tmax)
+
+    # 2. L2 Normalization
+    norm = torch.norm(delta_o_clipped, p=2)
+    if norm > 0:
+        delta_o_normalized = delta_o_clipped / norm
+    else:
+        delta_o_normalized = delta_o_clipped
+
+    # 3. Randomize the norm while keeping direction
+    delta_hat_o = torch.empty_like(delta_o_normalized)
+    positive_mask = delta_o_normalized >= 0
+    negative_mask = delta_o_normalized < 0
+
+    # Generate random values within (0, tmax) for positive gradients
+    delta_hat_o[positive_mask] = torch.empty_like(delta_hat_o[positive_mask]).uniform_(0, tmax)
+
+    # Generate random values within (tmin, 0) for negative gradients
+    delta_hat_o[negative_mask] = torch.empty_like(delta_hat_o[negative_mask]).uniform_(tmin, 0)
+    # print("delta_hat_o", delta_hat_o)
+    # sys.exit(0)
+    return delta_hat_o
+
 
 def gaussian_noise_masking_v2(g, ratio):
     device = g.device
@@ -272,6 +408,55 @@ def test_rebuild_acc(train_queue, net, decoder, tab, device, args):
         protocolData = net.forward(originData).clone().detach()
 
         xGen_before = decoder(protocolData)
+
+
+        onehot_index = tab['onehot']
+        # originData = onehot_softmax(originData, onehot_index)
+
+
+
+        xGen = onehot_softmax(xGen_before, onehot_index)
+
+        acc, onehot_acc, num_acc = tabRebuildAcc(originData, xGen, tab)
+        similarity = Similarity(xGen, originData)
+        euclidean_dist = torch.mean(torch.nn.functional.pairwise_distance(xGen, originData)).item()
+
+        acc_list.append(acc)
+        onehot_acc_list.append(onehot_acc)
+        num_acc_list.append(num_acc)
+        similarity_list.append(similarity)
+        euclidean_dist_list.append(euclidean_dist)
+
+    acc = np.mean(acc_list)
+    onehot_acc = np.mean(onehot_acc_list)
+    num_acc = np.mean(num_acc_list)
+    similarity = np.mean(similarity_list)
+    euclidean_dist = np.mean(euclidean_dist_list)
+    # print("acc:", acc)
+    # print("onehot_acc:", onehot_acc)
+    # print("num_acc:", num_acc)
+    # print("similarity", similarity)
+    # print("euclidean_dist", euclidean_dist)
+
+    return acc, onehot_acc, num_acc, similarity, euclidean_dist
+
+def test_rebuild_acc_v2(train_queue, net, decoder, tab, device, args):
+# for i in range(args.Ndata):
+    #     (trn_X, trn_y) = next(train_queue)
+    acc_list = []
+    onehot_acc_list = []
+    num_acc_list = []
+    similarity_list = []
+    euclidean_dist_list = []
+
+    #  最后测试重建准确率需要在训练集上进行
+    for trn_X, trn_y in train_queue:
+        trn_X = [x.float().to(device) for x in trn_X]
+
+        originData = trn_X[1]
+        protocolData = net.forward(originData).clone().detach()
+
+        xGen_before = decoder(torch.cat((protocolData, trn_X[0]), dim=1))
 
 
         onehot_index = tab['onehot']

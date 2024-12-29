@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 sys.path.append("/data/yangjirui/vfl/vfl-tab-reconstruction")
 
@@ -184,10 +185,15 @@ def set_args(parser):
 
     parser.add_argument('--iso_ratio', type=float, default=0.01, help='iso defense ratio')
     parser.add_argument('--DP_ratio', type=float, default=0.01, help='iso defense ratio')
+    
+    parser.add_argument('--tmax', type=float, default=1.00e-05, help='Maximum clipping threshold for gradients')
+    parser.add_argument('--tmin', type=float, default=-1.00e-05, help='Minimum clipping threshold for gradients')
+
+
 
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/train/cifar10_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/train/cifar10_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
@@ -202,13 +208,14 @@ def run(args):
     if not os.path.exists(args.save):
         os.makedirs(args.save)
 
-    txt_name = f"saved_process_data"
-    savedStdout = sys.stdout
-    with open(args.save + '/' + txt_name + '.txt', 'a') as file:
-        sys.stdout = file
-        run_experiment(device=device, args=args)
-        sys.stdout = savedStdout
-    print("################################ end experiment ############################")
+    # txt_name = f"saved_process_data"
+    # savedStdout = sys.stdout
+    # with open(args.save + '/' + txt_name + '.txt', 'a') as file:
+    #     sys.stdout = file
+    #     run_experiment(device=device, args=args)
+    #     sys.stdout = savedStdout
+    # print("################################ end experiment ############################")
+    run_experiment(device=device, args=args)
 
 
 
@@ -220,7 +227,7 @@ if __name__ == '__main__':
 
     torch.cuda.set_device(1)
 
-    save_path = "/data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/defense/"
+    save_path = "./model/cifar10/defense/"
 
     # # 这个是一个类似tensorboard的东西,可视化实验过程
     # wandb.init(project="vfl-tab-reconstruction", entity="potatobugjiang",
@@ -230,22 +237,21 @@ if __name__ == '__main__':
     list_of_args = []
 
     # 列出所有的防御方法
-    # protectMethod = ['non', 'max_norm', 'iso', 'gc', 'lap_noise', 'signSGD']
     # protectMethod = ['non', 'max_norm', 'iso', 'dp']
-    protectMethod = ['non', 'iso', 'dp']
+    # protectMethod = ['non', 'iso', 'dp']
     # protectMethod = ['dp']
     # protectMethod = ['iso', 'dp']
-    # protectMethod = ['iso']
+    protectMethod = ['vfldefender']
 
-    iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    # iso_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
     # iso_range = [1.0,1.5,2.0,2.5,3.0,3.5,4.0]
     # iso_range = [4.0, 4.5, 5.0, 5.5, 6.0, 6.5]
     # iso_range = [1.0]
 
     # dp_range = [0.1]
-    # dp_range = [0.5, 1.0]
-    dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
+    # dp_range = [0.3]
+    # dp_range = [0.001, 0.01, 0.1, 0.5, 1.0]
 
     for method in protectMethod:
         if method == 'max_norm':
@@ -279,12 +285,13 @@ if __name__ == '__main__':
             args.save = save_path + 'non'
             freeze_rand(args.seed)
             list_of_args.append(args)
+        elif method == 'vfldefender':
+            parser = argparse.ArgumentParser("vflmodelnet")
+            args = set_args(parser)
+            args.save = save_path + 'vfldefender'
+            freeze_rand(args.seed)
+            list_of_args.append(args)
 
     for arg in list_of_args:
         run(arg)
-    # reference training result:
-    # --- epoch: 99, batch: 1547, loss: 0.11550658332804839, acc: 0.9359105089400196, auc: 0.8736984159409958
-    # --- (0.9270889578726378, 0.5111934752243287, 0.5054099033579607, None)
-
-    # --- epoch: 99, batch: 200, loss: 0.09191526211798191, acc: 0.9636565918783608, auc: 0.9552342451916291
-    # --- (0.9754657898538487, 0.7605652456769234, 0.8317858679682943, None)
+    # with Pool(processes=1) as pool:

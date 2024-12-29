@@ -3,11 +3,11 @@ name: cifar10-base
 
 
 # dir
-data_dir: /data/yangjirui/vfl/vfl-tab-reconstruction/dataset/cifar10/
+data_dir: ./dataset/cifar10/
 #resume: ''
-resume: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/best.pth.tar
+resume: ./model/cifar10/base/v0/best.pth.tar
 # 从V3开始，正式进入论文的实验阶段
-save: /data/yangjirui/vfl/vfl-tab-reconstruction/model/cifar10/v6/
+save: ./model/cifar10/base/v0/
 
 # model
 report_freq: 10

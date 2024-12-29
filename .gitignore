@@ -13,3 +13,5 @@ rebuild-data/
 log/
 old*/
 test_code/
+comparisonMethod/
+output/

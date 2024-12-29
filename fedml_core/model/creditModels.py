@@ -94,6 +94,39 @@ class BottomModel(nn.Module):
 
     def getLayerNum(self):
         return len(self.local_model)
+    
+class BottomModelGrads(nn.Module):
+    def __init__(self, input_dim, output_dim=100):
+        super(BottomModelGrads, self).__init__()
+        self.local_model = nn.Sequential(
+            nn.Linear(input_dim, 300),
+            nn.LeakyReLU(),
+            nn.Linear(300, 100),
+            nn.LeakyReLU(),
+            nn.Linear(100, output_dim),
+        )
+        self.apply(weights_init)
+        self.param_grads = {}  # 用于存储参数梯度
+
+    def forward(self, input):
+        return self.local_model(input)
+
+    def getLayerOutput(self, x, targetLayer):
+        # 获取指定层的输出
+        return self.local_model[:targetLayer](x)
+
+    def getLayerNum(self):
+        # 获取模型的总层数
+        return len(self.local_model)
+
+    def capture_gradients(self):
+        """
+        捕获所有参数的梯度并存储在 self.param_grads 中
+        """
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                self.param_grads[name] = param.grad.clone().detach()
+
 
 
 class TopModel(nn.Module):

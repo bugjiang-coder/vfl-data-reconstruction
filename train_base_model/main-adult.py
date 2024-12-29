@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.utils import shuffle
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "../../../")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "./")))
 # 加入模块的搜索路径
 
 from fedml_core.preprocess.adult.preprocess_adult import preprocess
@@ -164,7 +165,7 @@ if __name__ == '__main__':
                         help='path to save checkpoint (default: none)')
 
     # config file
-    parser.add_argument('--c', type=str, default='../configs/train/adult_base.yml', help='config file')
+    parser.add_argument('--c', type=str, default='./configs/train/adult_base.yml', help='config file')
 
     args = parser.parse_args()
     over_write_args_from_file(args, args.c)
